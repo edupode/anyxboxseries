@@ -6,6 +6,8 @@ AnyXboxSeries targets Windows x64. It provides a C++ translation layer prototype
 
 GTA VI is the only Xbox game target for this stage. The build examined is missing the executable declared by its manifest, so startup remains blocked. An import audit of its available DLLs matched the two Direct3D 12 imports against the existing shim. The six `xmem.dll` import records have no candidate shim.
 
+The local Xbox package manifest declares `game_scarlett_master.exe` with target family `Scarlett`. A recursive filename inventory found no `.exe` in the package root or its `data` and `pack` folders. `Catalog000.bin` is an AMD64 PE32+ image, but DUMPBIN reports one section, zero code, entry point RVA zero, and subsystem `Xbox Code Catalog`; it is not a runnable title binary.
+
 The local UI-resource scan finds 1,263 `RBF0` roots in `data.rpf`, including 136 `UIScreen` roots, 65 `UIMovieView` roots, and 61 `rage__fwuiFlowBlock` roots. In `script.rpf`, it finds 1,007 `PSIN v22` header candidates with an in-bounds first-section offset. These counts locate data formats but do not identify the first game screen or provide runnable game code. The archive table of contents is encrypted and the declared title executable is absent. The public PSIN format notes describe `LSNS` as high-entropy data that has not been decoded, not plaintext script code. [RBF0 format notes](https://github.com/ItsNotRexed/Leonida/blob/aae4d99e10784eb21b4f14d08470c79613b9e7fe/docs/rbf0.md) · [PSIN format notes](https://github.com/ItsNotRexed/Leonida/blob/aae4d99e10784eb21b4f14d08470c79613b9e7fe/docs/psin.md)
 
 Run `python .\tools\inspect_ui_resources.py <data.rpf> <script.rpf>` to repeat the count. The tool reports archive offsets only when requested and does not write or export archive data.
