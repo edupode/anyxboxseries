@@ -12,6 +12,7 @@
 
 - Windows x64 Release build, CTest 19/19 and Python tests 13/13 on an NVIDIA GeForce RTX 5070 Ti Laptop GPU and Microsoft Basic Render Driver (WARP).
 - Local GTA package inventory repeated: `data.rpf` contains 1,263 recognized RBF0 roots and `script.rpf` contains 1,007 PSIN v22 header candidates. This is an asset inventory, not a title boot.
+- The Windows host read the GTA manifest and verified its own 160 × 120 diagnostic frame on the NVIDIA adapter. A separate startup-trace attempt against the manifest-declared title executable failed at `CreateProcessW` with Win32 error 2 because the file is absent.
 
 ### Known limits
 
