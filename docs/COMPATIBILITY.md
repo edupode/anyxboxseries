@@ -48,6 +48,8 @@ The Microsoft samples are pinned to [`Xbox-GDK-Samples` revision `b1e77b6ac10f95
 
 The current `d3d12_xs.dll` definition exports only `D3D12CreateRootSignatureDeserializer` and `D3D12SerializeVersionedRootSignature`; it does not export `D3D12XboxCreateDevice`. That makes device creation the first source-derived missing-symbol candidate, not a measured import failure: the sample EXE is absent, so its actual import DLL/name table cannot be checked with DUMPBIN. After device creation, `PresentX`, `WaitFrameEventX`, `SetFrameIntervalX`, and `ScheduleFrameEventX` also need compatible Xbox COM behavior; exporting one function alone would not complete the sample path.
 
+DUMPBIN confirmed the current provider build on 2026-11-21: `dumpbin /nologo /headers build\Release\d3d12_xs.dll` reports machine `8664 (x64)`, and `dumpbin /nologo /exports build\Release\d3d12_xs.dll` lists exactly those two exports. This proves the current shim lacks `D3D12XboxCreateDevice`; it does not prove SimpleTriangle imports that name from this DLL. The sample import table remains unverified until its authorized executable is available.
+
 The same revision's GameInput reference is `Samples/System/GameInputInterfacing/GameInputInterfacing.vcxproj`, with a `Release|Gaming.Xbox.Scarlett.x64` configuration and expected output `GameInputInterfacing.exe` (also not built here). The Windows test exercises the Windows GameInput runtime directly; it does not use or emulate the Xbox GDK runtime. A playable Scarlett sample is still needed after the graphics and GameInput references.
 
 ## Xbox Scarlett test inputs
