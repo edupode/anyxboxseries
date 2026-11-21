@@ -26,6 +26,7 @@ You can choose a build folder and a compatible module at startup. The probe can 
 .\viewer\source\build.ps1
 .\viewer\WSX-Resource-Launcher.exe 'C:\Games\SampleBuild'
 python .\tools\inspect_xbox_imports.py 'C:\Games\SampleBuild' --shims .\bin --output .\imports.txt
+python .\tools\inspect_ui_resources.py 'C:\Games\SampleBuild\data.rpf' 'C:\Games\SampleBuild\script.rpf'
 python -m unittest discover -s tools
 ~~~
 

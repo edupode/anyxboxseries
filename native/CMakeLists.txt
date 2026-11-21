@@ -53,6 +53,7 @@ install(FILES
         DESTINATION .)
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_ui_resources.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_shader.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rdna2_scalar.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_container.py"
@@ -70,6 +71,9 @@ if(BUILD_TESTING)
     add_executable(wsx_gameinput_mapping_test gameinput_input_test.cpp)
     target_link_libraries(wsx_gameinput_mapping_test PRIVATE wsx_gameinput_input)
     add_test(NAME gameinput_mapping COMMAND wsx_gameinput_mapping_test)
+    add_executable(wsx_gameinput_devices_test gameinput_devices_test.cpp)
+    target_link_libraries(wsx_gameinput_devices_test PRIVATE wsx_gameinput_input)
+    add_test(NAME gameinput_devices COMMAND wsx_gameinput_devices_test)
     add_executable(wsx_root_signature_test root_signature_test.cpp)
     add_dependencies(wsx_root_signature_test d3d12_xs)
     add_test(NAME root_signature COMMAND wsx_root_signature_test "$<TARGET_FILE:d3d12_xs>")

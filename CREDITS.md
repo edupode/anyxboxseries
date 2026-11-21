@@ -10,7 +10,7 @@ Preserve this credit and the licence notices when redistributing covered code. D
 
 ## Technical references
 
-- **Leonida** by ItsNotRexed and contributors. Reference for the Xbox shader container layout and the separate GPU translation stage. The upstream repository is GPL-3.0. [Reviewed revision and licence](https://github.com/ItsNotRexed/Leonida/blob/793b06f12765571ed5e126d1d8944cec6a4dc805/LICENSE)
+- **Leonida** by ItsNotRexed and contributors. Reference for the Xbox shader container layout, separate GPU translation stage, and published RBF0/PSIN format notes. The upstream repository is GPL-3.0. The local scanner follows documented format facts and does not copy source. [RBF0 notes](https://github.com/ItsNotRexed/Leonida/blob/aae4d99e10784eb21b4f14d08470c79613b9e7fe/docs/rbf0.md) · [PSIN notes](https://github.com/ItsNotRexed/Leonida/blob/aae4d99e10784eb21b4f14d08470c79613b9e7fe/docs/psin.md) · [Licence](https://github.com/ItsNotRexed/Leonida/blob/aae4d99e10784eb21b4f14d08470c79613b9e7fe/LICENSE)
 - **ScarlettX** by Freminet and contributors. Reference for synthetic Direct3D 12 diagnostics and separate DXR and shader bring-up. [Reviewed revision](https://github.com/Freminet/ScarlettX/tree/bda18b4d3dab501dd0f372e5d1921f462c6bd457)
 - **AMD**. RDNA 2 instruction encodings and behavior. [RDNA 2 ISA reference](https://docs.amd.com/v/u/en-US/rdna2-shader-instruction-set-architecture)
 - **Microsoft**. DXIL container and compiler API, and the DirectX Raytracing API. [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) · [DXR specification](https://microsoft.github.io/DirectX-Specs/d3d/Raytracing.html)
