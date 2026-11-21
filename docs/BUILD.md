@@ -29,7 +29,7 @@ python .\tools\inspect_xbox_imports.py 'C:\Games\SampleBuild' --shims .\bin --ou
 python -m unittest discover -s tools
 ~~~
 
-The viewer uses WinForms on .NET Framework. The import inspector requires Python 3.10 or newer and DUMPBIN.
+The viewer uses WinForms on .NET Framework. The import inspector requires Python 3.10 or newer and DUMPBIN. Signal Run loads the Windows GameInput runtime from System32 at startup; if it is unavailable, the sample keeps its XInput fallback.
 
 `--present` creates a short-lived window, presents one triangle through a DXGI swap chain, and checks the rendered pixels. `--warp --present` runs the same check on WARP. `wsx_startup_trace` launches the specified executable, reports loaded images, debug strings, exceptions, and its exit code, then detaches after the observation limit if it is still running. It does not modify the executable or its files. Run it only with a build you are authorized to launch.
 
@@ -37,4 +37,4 @@ The import inspector selects the launch executable in `MicrosoftGame.Config` or 
 
 Add `-DWSX_DXC_DIR="<x64 DXC directory>"` to the first CMake command to enable the tests for SM 6.6, FSSM translation and DXR 1.1. The corresponding SDK headers include `dxcapi.h`. See the [shader guide](SHADERS.md) for runtime requirements and commands.
 
-CTest runs Signal Run with the preferred adapter and with WARP. Its self test sends keyboard events to the game window, checks button mapping, completes a run and verifies pixels from four frames. It also checks a DXGI swap-chain present on both adapters and launches the graphics probe through `wsx_startup_trace` to verify process exit.
+CTest runs Signal Run with the preferred adapter and with WARP. Its self test sends keyboard events to the game window, checks GameInput-to-menu button mapping, completes a run and verifies pixels from four frames. A separate test launches the sample through `wsx_startup_trace`, checks that GameInput reports its initialized or fallback state, and verifies the child exits. No physical controller is required for these tests. The suite also checks a DXGI swap-chain present on both adapters and a graphics-probe process exit.

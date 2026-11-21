@@ -15,7 +15,7 @@ Extract the latest portable Windows x64 ZIP and double-click `Start-SignalRun.cm
 .\bin\wsx_bootstrap.exe --sample
 ~~~
 
-Signal Run is a small Windows game that tests the loader's menu, frame presentation and input. Use the arrow keys or the controller D pad to move. Enter or A confirms and Esc or B exits. Run the bootstrap without `--sample` for the standalone graphics check.
+Signal Run is a small Windows game that tests the loader's menu, frame presentation and input. It reads controller buttons through the Windows GameInput runtime, with XInput as a fallback. Use the arrow keys or D pad to move. Enter or A confirms, Esc or B exits, and Y restarts. Run the bootstrap without `--sample` for the standalone graphics check.
 
 See [Build on Windows](docs/BUILD.md) to compile or contribute changes. The [shader tools](docs/SHADERS.md) require Python for container preparation and Microsoft's DXC for runtime HLSL compilation.
 
@@ -37,7 +37,7 @@ In native, bootstrap.cpp opens a DLL and passes a Direct3D 12 device and an opti
 
 The Direct3D bridge is implemented in d3d12_xs.cpp, with its exports declared in d3d12_xs.def. It forwards two root signature functions to the Windows runtime and records the result in shim_log.txt. graphics_runtime.h declares the device and frame operations implemented in graphics_probe.cpp. graphics_probe_main.cpp exposes those operations as a standalone test. root_signature_test.cpp checks the round trip and error cases, and CMakeLists.txt assembles the native targets and tests.
 
-sample_game.cpp implements Signal Run as a Windows module that reuses `WsxStartV1`. It handles keyboard messages and XInput button events. window_presenter.cpp creates the DXGI swap chain, presents the frames and supports pixel readback in the tests.
+sample_game.cpp implements Signal Run as a Windows module that reuses `WsxStartV1`. It handles keyboard messages and reads gamepad state through GameInput, falling back to XInput when GameInput is unavailable. window_presenter.cpp creates the DXGI swap chain, presents the frames and supports pixel readback in the tests.
 
 ## Licence and credits
 
