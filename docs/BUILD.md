@@ -7,6 +7,7 @@ cmake -S native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TRY_COMPILE
 cmake --build build
 ctest --test-dir build --output-on-failure
 cmake --install build --prefix .
+.\Start-SignalRun.cmd
 .\bin\wsx_bootstrap.exe
 ~~~
 

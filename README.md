@@ -9,7 +9,7 @@ GTA VI is the only game target at this stage. The project started with an Xbox b
 
 ## Download for Windows
 
-Extract the latest portable Windows x64 ZIP and open PowerShell in its folder. [Download the Windows preview](https://github.com/edupode/anyxboxseries/releases).
+Extract the latest portable Windows x64 ZIP and double-click `Start-SignalRun.cmd` to open the sample. [Download the Windows preview](https://github.com/edupode/anyxboxseries/releases).
 
 ~~~powershell
 .\bin\wsx_bootstrap.exe --sample

@@ -39,6 +39,7 @@ target_link_libraries(wsx_bootstrap PRIVATE wsx_graphics_runtime)
 add_dependencies(wsx_bootstrap wsx_boot_graphics wsx_sample_game)
 install(TARGETS d3d12_xs wsx_graphics_probe wsx_bootstrap wsx_boot_graphics wsx_sample_game
         RUNTIME DESTINATION bin)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Start-SignalRun.cmd" DESTINATION .)
 
 include(CTest)
 if(BUILD_TESTING)
