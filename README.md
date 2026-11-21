@@ -17,11 +17,13 @@ Extract the latest portable Windows x64 ZIP and double-click `Start-SignalRun.cm
 
 Signal Run is a small Windows game that tests the loader's menu, frame presentation and input. Use the arrow keys or the controller D pad to move. Enter or A confirms and Esc or B exits. Run the bootstrap without `--sample` for the standalone graphics check.
 
-See [Build on Windows](docs/BUILD.md) to compile or contribute changes.
+See [Build on Windows](docs/BUILD.md) to compile or contribute changes. The [shader tools](docs/SHADERS.md) require Python for container preparation and Microsoft's DXC for runtime HLSL compilation.
 
 ## Current status
 
 The graphics probe and Signal Run have passed on an NVIDIA RTX 5070 Ti Laptop GPU and in WARP. Signal Run verifies a real DXGI swap chain and reads back pixels from its menu and game frames. The GTA VI build examined remains blocked before the game starts. It needs the title executable and support for the APIs it calls. See [Compatibility](docs/COMPATIBILITY.md).
+
+The Direct3D 12 shader probe checks SM 6.6 compute and DXR 1.1 inline ray tracing. The preparation tool can inspect DXBC/DXIL, unpack FSSM, and lift a subset of RDNA 2 scalar instructions into HLSL for the compute probe.
 
 ![A verified Direct3D 12 test frame](docs/frame.png)
 

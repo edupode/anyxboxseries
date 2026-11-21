@@ -28,6 +28,8 @@ target_link_libraries(wsx_graphics_runtime PUBLIC d3d12_xs dxgi d3dcompiler)
 
 add_executable(wsx_graphics_probe graphics_probe_main.cpp)
 target_link_libraries(wsx_graphics_probe PRIVATE wsx_graphics_runtime)
+add_executable(wsx_shader_probe shader_probe.cpp shader_compiler.cpp)
+target_link_libraries(wsx_shader_probe PRIVATE wsx_graphics_runtime)
 
 add_library(wsx_boot_graphics SHARED boot_graphics.cpp)
 target_link_libraries(wsx_boot_graphics PRIVATE wsx_graphics_runtime)
@@ -37,11 +39,19 @@ target_link_libraries(wsx_sample_game PRIVATE dxgi user32 xinput)
 add_executable(wsx_bootstrap bootstrap.cpp)
 target_link_libraries(wsx_bootstrap PRIVATE wsx_graphics_runtime)
 add_dependencies(wsx_bootstrap wsx_boot_graphics wsx_sample_game)
-install(TARGETS d3d12_xs wsx_graphics_probe wsx_bootstrap wsx_boot_graphics wsx_sample_game
+install(TARGETS d3d12_xs wsx_graphics_probe wsx_shader_probe wsx_bootstrap wsx_boot_graphics wsx_sample_game
         RUNTIME DESTINATION bin)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Start-SignalRun.cmd" DESTINATION .)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_shader.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rdna2_scalar.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_container.py"
+        DESTINATION tools)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../docs/SHADERS.md" DESTINATION docs)
 
 include(CTest)
+set(WSX_DXC_DIR "" CACHE PATH "Directory with x64 dxcompiler.dll and dxil.dll for optional shader tests")
 if(BUILD_TESTING)
     add_executable(wsx_root_signature_test root_signature_test.cpp)
     add_dependencies(wsx_root_signature_test d3d12_xs)
@@ -56,4 +66,21 @@ if(BUILD_TESTING)
         ENVIRONMENT "WSX_SAMPLE_SELF_TEST=1" TIMEOUT 45)
     set_tests_properties(graphics_probe graphics_probe_standard_adapters graphics_probe_warp
         bootstrap_graphics PROPERTIES TIMEOUT 45)
+    if(WSX_DXC_DIR)
+        if(NOT EXISTS "${WSX_DXC_DIR}/dxcompiler.dll" OR NOT EXISTS "${WSX_DXC_DIR}/dxil.dll")
+            message(FATAL_ERROR "WSX_DXC_DIR must contain the matching x64 dxcompiler.dll and dxil.dll.")
+        endif()
+        find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+        set(shader_smoke "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_smoke.py")
+        add_test(NAME shader_sm66 COMMAND wsx_shader_probe --dxc-dir "${WSX_DXC_DIR}")
+        add_test(NAME shader_sm66_warp COMMAND wsx_shader_probe --dxc-dir "${WSX_DXC_DIR}" --warp)
+        add_test(NAME shader_rdna2 COMMAND "${Python3_EXECUTABLE}" "${shader_smoke}"
+                 "$<TARGET_FILE:wsx_shader_probe>" "${WSX_DXC_DIR}")
+        add_test(NAME shader_rdna2_warp COMMAND "${Python3_EXECUTABLE}" "${shader_smoke}"
+                 "$<TARGET_FILE:wsx_shader_probe>" "${WSX_DXC_DIR}" --warp)
+        add_test(NAME shader_dxr_1_1 COMMAND wsx_shader_probe --dxc-dir "${WSX_DXC_DIR}" --ray-query)
+        add_test(NAME shader_dxr_1_1_warp COMMAND wsx_shader_probe --dxc-dir "${WSX_DXC_DIR}" --ray-query --warp)
+        set_tests_properties(shader_sm66 shader_sm66_warp shader_rdna2 shader_rdna2_warp
+                             shader_dxr_1_1 shader_dxr_1_1_warp PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+    endif()
 endif()
