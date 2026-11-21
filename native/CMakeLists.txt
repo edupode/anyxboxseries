@@ -71,6 +71,7 @@ install(FILES "${WSX_XMEM_SOURCE_DIR}/LICENSE"
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_ui_resources.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rbf0_tree.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_shader.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rdna2_scalar.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_container.py"
@@ -78,6 +79,7 @@ install(FILES
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/BUILD.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/COMPATIBILITY.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../docs/status.html"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/frame.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/SHADERS.md"
         DESTINATION docs)
