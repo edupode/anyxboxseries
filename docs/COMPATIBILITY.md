@@ -31,3 +31,24 @@ A Windows module can receive the device and a build folder through WsxStartV1. T
 Signal Run uses the same entry point and adds Windows frame presentation and input. It reads D-pad, A, B and Y through the Windows GameInput runtime, with XInput as a fallback. Its tests check menu selection, movement, collisions, signal collection, restart and exit with pixels read back from the presented frames. A separate mapping test checks GameInput-to-menu actions, and a startup-trace test verifies that the system GameInput runtime initializes. No physical controller was connected during this verification, so a real controller event is still untested.
 
 The Microsoft [GameInputInterfacing sample](https://github.com/microsoft/Xbox-GDK-Samples/tree/b1e77b6ac10f95b07296025fda171ca2ddc42dbe/Samples/System/GameInputInterfacing) is an API reference. The Windows test exercises GameInput directly; it does not use or emulate the Xbox GDK runtime. A Scarlett title still requires its own `D3D12XboxCreateDevice`, `PresentX`, frame-event and runtime support, plus an authorized console executable.
+
+## Xbox Scarlett test inputs
+
+The 2026-11-21 workstation inventory found no GDK/GDKX installation in the standard Microsoft install directories and no authorized `Gaming.Xbox.Scarlett.x64` executable in this checkout. The available DUMPBIN is bundled with Visual Studio 18, but there is no candidate Scarlett executable to inspect. Microsoft documents the public Xbox GDK samples and their current SDK requirements in the [sample repository](https://github.com/microsoft/Xbox-GDK-Samples/). Its [SimpleTriangle sample](https://learn.microsoft.com/en-us/samples/microsoft/xbox-gdk-samples/simpletriangle/) is the first graphics/presentation reference; [GameInputInterfacing](https://learn.microsoft.com/en-us/samples/microsoft/xbox-gdk-samples/gameinputinterfacing/) selects `Gaming.Xbox.Scarlett.x64` for Xbox Series X|S. Xbox GameInput uses the runtime supplied by GDK/GameOS; desktop GameInput tests alone do not verify it ([Microsoft GameInput on Xbox](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-xbox?view=gdk-2610)).
+
+To resume the Scarlett boot test, place these authorized inputs on the test workstation:
+
+1. A usable Microsoft GDK with Xbox Extensions (GDKX) installation, its version, and its installed root. Keep the SDK outside this repository.
+2. The pinned source revision and a complete `SimpleTriangle` build configured for `Gaming.Xbox.Scarlett.x64`, including its `MicrosoftGame.config` or package metadata and required runtime dependencies.
+3. A matching `GameInputInterfacing` Scarlett build and the GameInput runtime/dependencies expected by that GDK release.
+4. An authorized playable Scarlett sample build and its package metadata after SimpleTriangle reaches its first frame. Connect a supported controller to verify a real input event.
+
+For each executable, run `dumpbin /headers <path-to-exe>` and `dumpbin /imports <path-to-exe>` from a Visual Studio Developer shell, then capture the first startup failure with:
+
+~~~powershell
+.\bin\wsx_startup_trace.exe --observe-ms 30000 -- '<path-to-exe>'
+~~~
+
+Record the source revision, SHA-256, target configuration, adapter/driver, commands, loaded modules, first missing import or runtime call, input event, and clean-exit result. The current Windows regression baseline is CTest 19/19 with the hardware adapter and WARP; the last recorded hardware adapter is NVIDIA GeForce RTX 5070 Ti Laptop GPU, driver 621.01. No Scarlett menu, frame, controller event, or performance result has been measured.
+
+The separate GTA VI milestone requires a complete, authorized package containing the manifest-declared `game_scarlett_master.exe`, matching dependencies, and metadata. Asset indexes are not a substitute for the executable.

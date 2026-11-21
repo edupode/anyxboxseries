@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.4.0-preview.4 — 2026-11-21
+
+### Added
+
+- Signal Run tracks GameInput gamepad connect/disconnect callbacks and combines readings from up to four connected devices. XInput remains as a fallback.
+- Added a read-only RPF9 UI-resource indexer for RBF0 schema roots and PSIN v22 header candidates. It reports metadata and archive offsets only; it does not decrypt archives or execute title code.
+- Added a reproducible console-test resume record covering the current SDK and executable gap.
+
+### Verified
+
+- Windows x64 Release build, CTest 19/19 and Python tests 13/13 on an NVIDIA GeForce RTX 5070 Ti Laptop GPU and Microsoft Basic Render Driver (WARP).
+- Local GTA package inventory repeated: `data.rpf` contains 1,263 recognized RBF0 roots and `script.rpf` contains 1,007 PSIN v22 header candidates. This is an asset inventory, not a title boot.
+
+### Known limits
+
+- No GDKX installation was found in the standard install directories, and no authorized Scarlett sample executable was present in this checkout. The Scarlett build path and GTA VI startup remain untested.
+- No physical controller was connected; GameInput hot-plug behavior is covered by the device-state test, while a real device event is still unverified.
+
 ## v0.4.0-preview.3 — 2026-11-21
 
 ### Added
