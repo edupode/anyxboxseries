@@ -20,4 +20,5 @@ enum class AdapterMode {
 };
 
 HRESULT create_graphics_device(AdapterMode mode, ID3D12Device** device) noexcept;
-HRESULT verify_graphics_frame(ID3D12Device* device, const wchar_t* frame_path = nullptr) noexcept;
+HRESULT verify_graphics_frame(ID3D12Device* device, const wchar_t* frame_path = nullptr,
+                              HWND output_window = nullptr) noexcept;

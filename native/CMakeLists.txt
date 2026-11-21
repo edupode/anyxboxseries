@@ -27,9 +27,10 @@ add_library(wsx_graphics_runtime STATIC graphics_probe.cpp)
 target_link_libraries(wsx_graphics_runtime PUBLIC d3d12_xs dxgi d3dcompiler)
 
 add_executable(wsx_graphics_probe graphics_probe_main.cpp)
-target_link_libraries(wsx_graphics_probe PRIVATE wsx_graphics_runtime)
+target_link_libraries(wsx_graphics_probe PRIVATE wsx_graphics_runtime user32)
 add_executable(wsx_shader_probe shader_probe.cpp shader_compiler.cpp)
 target_link_libraries(wsx_shader_probe PRIVATE wsx_graphics_runtime)
+add_executable(wsx_startup_trace startup_trace.cpp)
 
 add_library(wsx_boot_graphics SHARED boot_graphics.cpp)
 target_link_libraries(wsx_boot_graphics PRIVATE wsx_graphics_runtime)
@@ -39,16 +40,27 @@ target_link_libraries(wsx_sample_game PRIVATE dxgi user32 xinput)
 add_executable(wsx_bootstrap bootstrap.cpp)
 target_link_libraries(wsx_bootstrap PRIVATE wsx_graphics_runtime)
 add_dependencies(wsx_bootstrap wsx_boot_graphics wsx_sample_game)
-install(TARGETS d3d12_xs wsx_graphics_probe wsx_shader_probe wsx_bootstrap wsx_boot_graphics wsx_sample_game
+install(TARGETS d3d12_xs wsx_graphics_probe wsx_shader_probe wsx_startup_trace wsx_bootstrap wsx_boot_graphics wsx_sample_game
         RUNTIME DESTINATION bin)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Start-SignalRun.cmd" DESTINATION .)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../README.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../CREDITS.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../CONTRIBUTING.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE"
+        DESTINATION .)
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_shader.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rdna2_scalar.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_container.py"
         DESTINATION tools)
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../docs/SHADERS.md" DESTINATION docs)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../docs/BUILD.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../docs/COMPATIBILITY.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../docs/frame.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../docs/SHADERS.md"
+        DESTINATION docs)
 
 include(CTest)
 set(WSX_DXC_DIR "" CACHE PATH "Directory with x64 dxcompiler.dll and dxil.dll for optional shader tests")
@@ -59,13 +71,21 @@ if(BUILD_TESTING)
     add_test(NAME graphics_probe COMMAND wsx_graphics_probe)
     add_test(NAME graphics_probe_standard_adapters COMMAND wsx_graphics_probe --legacy-dxgi)
     add_test(NAME graphics_probe_warp COMMAND wsx_graphics_probe --warp)
+    add_test(NAME graphics_probe_present COMMAND wsx_graphics_probe --present)
+    add_test(NAME graphics_probe_present_warp COMMAND wsx_graphics_probe --warp --present)
+    add_test(NAME startup_trace COMMAND wsx_startup_trace --observe-ms 30000 --
+             "$<TARGET_FILE:wsx_graphics_probe>" --warp)
     add_test(NAME bootstrap_graphics COMMAND wsx_bootstrap)
     add_test(NAME signal_run COMMAND wsx_bootstrap --sample)
     add_test(NAME signal_run_warp COMMAND wsx_bootstrap --warp --module "$<TARGET_FILE:wsx_sample_game>")
     set_tests_properties(signal_run signal_run_warp PROPERTIES
         ENVIRONMENT "WSX_SAMPLE_SELF_TEST=1" TIMEOUT 45)
     set_tests_properties(graphics_probe graphics_probe_standard_adapters graphics_probe_warp
-        bootstrap_graphics PROPERTIES TIMEOUT 45)
+        graphics_probe_present graphics_probe_present_warp bootstrap_graphics PROPERTIES TIMEOUT 45)
+    set_tests_properties(graphics_probe_present graphics_probe_present_warp PROPERTIES
+        PASS_REGULAR_EXPRESSION "DXGI triangle presented and verified")
+    set_tests_properties(startup_trace PROPERTIES
+        TIMEOUT 60 PASS_REGULAR_EXPRESSION "Process exited: 0x00000000")
     if(WSX_DXC_DIR)
         if(NOT EXISTS "${WSX_DXC_DIR}/dxcompiler.dll" OR NOT EXISTS "${WSX_DXC_DIR}/dxil.dll")
             message(FATAL_ERROR "WSX_DXC_DIR must contain the matching x64 dxcompiler.dll and dxil.dll.")

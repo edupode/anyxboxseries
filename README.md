@@ -33,7 +33,7 @@ In viewer/source, Launcher.cs runs the resource viewer and PackageReader.cs read
 
 In tools, inspect_xbox_imports.py reads regular and delay load imports with Visual Studio DUMPBIN. It checks the requested libraries against the build folder, System32, and the Windows API set contracts. With `--shims`, it also compares those imports with the export tables of candidate DLLs.
 
-In native, bootstrap.cpp opens a DLL and passes a Direct3D 12 device and an optional build path to its WsxStartV1 entry point. The function signature lives in boot_api.h. The included implementation in boot_graphics.cpp opens the build manifest when given a path and draws the test frame.
+In native, bootstrap.cpp opens a DLL and passes a Direct3D 12 device and an optional build path to its WsxStartV1 entry point. The function signature lives in boot_api.h. The included implementation in boot_graphics.cpp opens the build manifest when given a path and draws the test frame. `startup_trace.cpp` launches a selected Windows executable and records its loaded images, debug strings, exceptions, and exit status for startup diagnosis.
 
 The Direct3D bridge is implemented in d3d12_xs.cpp, with its exports declared in d3d12_xs.def. It forwards two root signature functions to the Windows runtime and records the result in shim_log.txt. graphics_runtime.h declares the device and frame operations implemented in graphics_probe.cpp. graphics_probe_main.cpp exposes those operations as a standalone test. root_signature_test.cpp checks the round trip and error cases, and CMakeLists.txt assembles the native targets and tests.
 

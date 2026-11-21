@@ -70,6 +70,17 @@ const DesktopExports& desktop_exports() noexcept {
 
 HRESULT write_result(const char* function, HRESULT status,
                      std::optional<UINT> flags = std::nullopt) noexcept {
+    std::array<char, 160> line{};
+    const auto code = static_cast<unsigned long>(status);
+    const int bytes = flags
+        ? std::snprintf(line.data(), line.size(), "%s HRESULT=0x%08lX RootFlags=0x%08X\r\n",
+                        function, code, *flags)
+        : std::snprintf(line.data(), line.size(), "%s HRESULT=0x%08lX\r\n", function, code);
+    if (bytes <= 0 || static_cast<std::size_t>(bytes) >= line.size()) {
+        return status;
+    }
+    OutputDebugStringA(line.data());
+
     std::array<wchar_t, 32768> path{};
     constexpr wchar_t log_name[] = L"shim_log.txt";
     const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
@@ -82,15 +93,6 @@ HRESULT write_result(const char* function, HRESULT status,
     }
     std::copy_n(log_name, std::size(log_name), filename + 1);
 
-    std::array<char, 160> line{};
-    const auto code = static_cast<unsigned long>(status);
-    const int bytes = flags
-        ? std::snprintf(line.data(), line.size(), "%s HRESULT=0x%08lX RootFlags=0x%08X\r\n",
-                        function, code, *flags)
-        : std::snprintf(line.data(), line.size(), "%s HRESULT=0x%08lX\r\n", function, code);
-    if (bytes <= 0 || static_cast<std::size_t>(bytes) >= line.size()) {
-        return status;
-    }
     const HANDLE file = CreateFileW(path.data(), FILE_APPEND_DATA,
                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                     nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);

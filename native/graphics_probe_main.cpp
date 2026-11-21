@@ -18,6 +18,7 @@
 int wmain(int argc, wchar_t** argv) {
     AdapterMode adapter_mode = AdapterMode::Preferred;
     const wchar_t* frame_path = nullptr;
+    bool present = false;
     for (int i = 1; i < argc; ++i) {
         const std::wstring_view arg(argv[i]);
         if (arg == L"--warp") {
@@ -26,8 +27,11 @@ int wmain(int argc, wchar_t** argv) {
             adapter_mode = AdapterMode::Standard;
         } else if (arg == L"--frame" && i + 1 < argc) {
             frame_path = argv[++i];
+        } else if (arg == L"--present") {
+            present = true;
         } else {
-            std::fprintf(stderr, "Usage: wsx_graphics_probe [--warp | --legacy-dxgi] [--frame output.ppm]\n");
+            std::fprintf(stderr, "Usage: wsx_graphics_probe [--warp | --legacy-dxgi] "
+                         "[--present] [--frame output.ppm]\n");
             return 2;
         }
     }
@@ -35,5 +39,20 @@ int wmain(int argc, wchar_t** argv) {
     if (FAILED(create_graphics_device(adapter_mode, device.GetAddressOf()))) {
         return 1;
     }
-    return FAILED(verify_graphics_frame(device.Get(), frame_path)) ? 1 : 0;
+    HWND window = nullptr;
+    if (present) {
+        window = CreateWindowExW(0, L"STATIC", L"Direct3D 12 Triangle | AnyXboxSeries by edupode",
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 336, 280,
+            nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!window) {
+            std::fprintf(stderr, "CreateWindowExW returned Win32 error %lu\n", GetLastError());
+            return 1;
+        }
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
+    const HRESULT status = verify_graphics_frame(device.Get(), frame_path, window);
+    if (window) {
+        DestroyWindow(window);
+    }
+    return FAILED(status) ? 1 : 0;
 }
