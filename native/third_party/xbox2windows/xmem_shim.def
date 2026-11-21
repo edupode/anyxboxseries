@@ -1,0 +1,6 @@
+LIBRARY xmem
+EXPORTS
+    XMemAlloc
+    XMemFree
+    XMemVirtualQuery
+    XMemGetWorkingSetStatistics
