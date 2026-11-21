@@ -43,6 +43,6 @@ AnyXboxSeries is open source under the [Common Public Attribution License 1.0](L
 
 Keep the licence and attribution notices with redistributed code. If a product includes covered code and exposes it through a graphical interface, it must prominently credit **AnyXboxSeries by edupode** as specified in Section 14 and Exhibit B. This applies to products that combine AnyXboxSeries with other code. The licence also sets source availability terms for distributing or deploying covered changes. The exact attribution is in [CREDITS.md](CREDITS.md).
 
-## Contributions and AI assistance
+## Contributing
 
-The code is AI assisted. The tests are the record of what was actually exercised. Report the commands and results when you contribute a change, especially if it affects startup or driver selection. The branch and push workflow is in [CONTRIBUTING.md](CONTRIBUTING.md).
+Report the commands and results when you contribute a change, especially if it affects startup or driver selection. The branch and push workflow is in [CONTRIBUTING.md](CONTRIBUTING.md).
