@@ -23,6 +23,14 @@ add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX)
 add_compile_options(/W4 /permissive-)
 
 add_library(d3d12_xs SHARED d3d12_xs.cpp d3d12_xs.def)
+set(WSX_XMEM_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/xbox2windows")
+add_library(xmem SHARED
+    "${WSX_XMEM_SOURCE_DIR}/xmem_shim.cpp"
+    "${WSX_XMEM_SOURCE_DIR}/xmem_shim.def"
+    "${WSX_XMEM_SOURCE_DIR}/era_heap.cpp"
+    "${WSX_XMEM_SOURCE_DIR}/era_query.cpp")
+target_include_directories(xmem PRIVATE "${WSX_XMEM_SOURCE_DIR}")
+add_library(wsx_pe_map SHARED "${WSX_XMEM_SOURCE_DIR}/pe_map.cpp")
 add_library(wsx_graphics_runtime STATIC graphics_probe.cpp)
 target_link_libraries(wsx_graphics_runtime PUBLIC d3d12_xs dxgi d3dcompiler)
 
@@ -31,6 +39,13 @@ target_link_libraries(wsx_graphics_probe PRIVATE wsx_graphics_runtime user32)
 add_executable(wsx_shader_probe shader_probe.cpp shader_compiler.cpp)
 target_link_libraries(wsx_shader_probe PRIVATE wsx_graphics_runtime)
 add_executable(wsx_startup_trace startup_trace.cpp)
+add_executable(wsx_xmem_shim_test xmem_shim_test.cpp)
+add_dependencies(wsx_xmem_shim_test xmem)
+add_executable(wsx_pe_map_test pe_map_test.cpp)
+add_executable(wsx_pe_map_fixture_exe pe_map_fixture_exe.cpp)
+add_dependencies(wsx_pe_map_test wsx_pe_map wsx_pe_map_fixture_exe)
+target_compile_options(wsx_pe_map_fixture_exe PRIVATE /GS- /Zl)
+target_link_options(wsx_pe_map_fixture_exe PRIVATE /NODEFAULTLIB /ENTRY:WsxPeMapFixtureEntry /SUBSYSTEM:CONSOLE)
 
 add_library(wsx_boot_graphics SHARED boot_graphics.cpp)
 target_link_libraries(wsx_boot_graphics PRIVATE wsx_graphics_runtime)
@@ -41,7 +56,7 @@ target_link_libraries(wsx_sample_game PRIVATE dxgi user32 xinput wsx_gameinput_i
 add_executable(wsx_bootstrap bootstrap.cpp)
 target_link_libraries(wsx_bootstrap PRIVATE wsx_graphics_runtime)
 add_dependencies(wsx_bootstrap wsx_boot_graphics wsx_sample_game)
-install(TARGETS d3d12_xs wsx_graphics_probe wsx_shader_probe wsx_startup_trace wsx_bootstrap wsx_boot_graphics wsx_sample_game
+install(TARGETS d3d12_xs xmem wsx_pe_map wsx_graphics_probe wsx_shader_probe wsx_startup_trace wsx_bootstrap wsx_boot_graphics wsx_sample_game
         RUNTIME DESTINATION bin)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Start-SignalRun.cmd" DESTINATION .)
 install(FILES
@@ -51,8 +66,12 @@ install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../CONTRIBUTING.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE"
         DESTINATION .)
+install(FILES "${WSX_XMEM_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses RENAME "Xbox2Windows-MIT.txt")
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_ui_resources.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rbf0_tree.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_shader.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rdna2_scalar.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_container.py"
@@ -60,6 +79,7 @@ install(FILES
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/BUILD.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/COMPATIBILITY.md"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../docs/status.html"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/frame.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/SHADERS.md"
         DESTINATION docs)
@@ -70,6 +90,9 @@ if(BUILD_TESTING)
     add_executable(wsx_gameinput_mapping_test gameinput_input_test.cpp)
     target_link_libraries(wsx_gameinput_mapping_test PRIVATE wsx_gameinput_input)
     add_test(NAME gameinput_mapping COMMAND wsx_gameinput_mapping_test)
+    add_executable(wsx_gameinput_devices_test gameinput_devices_test.cpp)
+    target_link_libraries(wsx_gameinput_devices_test PRIVATE wsx_gameinput_input)
+    add_test(NAME gameinput_devices COMMAND wsx_gameinput_devices_test)
     add_executable(wsx_root_signature_test root_signature_test.cpp)
     add_dependencies(wsx_root_signature_test d3d12_xs)
     add_test(NAME root_signature COMMAND wsx_root_signature_test "$<TARGET_FILE:d3d12_xs>")
@@ -85,6 +108,11 @@ if(BUILD_TESTING)
     add_test(NAME bootstrap_graphics COMMAND wsx_bootstrap)
     add_test(NAME signal_run COMMAND wsx_bootstrap --sample)
     add_test(NAME signal_run_warp COMMAND wsx_bootstrap --warp --module "$<TARGET_FILE:wsx_sample_game>")
+    add_test(NAME xmem_shim COMMAND wsx_xmem_shim_test "$<TARGET_FILE_DIR:wsx_xmem_shim_test>/xmem.dll")
+    set_tests_properties(xmem_shim PROPERTIES TIMEOUT 30)
+    add_test(NAME pe_map_fixture COMMAND wsx_pe_map_test
+             "$<TARGET_FILE_DIR:wsx_pe_map_test>/wsx_pe_map.dll" "$<TARGET_FILE:wsx_pe_map_fixture_exe>")
+    set_tests_properties(pe_map_fixture PROPERTIES TIMEOUT 30)
     set_tests_properties(signal_run signal_run_warp PROPERTIES
         ENVIRONMENT "WSX_SAMPLE_SELF_TEST=1" TIMEOUT 45)
     set_tests_properties(graphics_probe graphics_probe_standard_adapters graphics_probe_warp

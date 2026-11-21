@@ -26,6 +26,9 @@ You can choose a build folder and a compatible module at startup. The probe can 
 .\viewer\source\build.ps1
 .\viewer\WSX-Resource-Launcher.exe 'C:\Games\SampleBuild'
 python .\tools\inspect_xbox_imports.py 'C:\Games\SampleBuild' --shims .\bin --output .\imports.txt
+python .\tools\inspect_ui_resources.py 'C:\Games\SampleBuild\data.rpf' 'C:\Games\SampleBuild\script.rpf'
+python .\tools\rbf0_tree.py 'C:\Games\SampleBuild\data.rpf' --find STACK_Main_Menu
+python .\tools\rbf0_tree.py 'C:\Games\SampleBuild\data.rpf' --offset 0x11D3C000 --dump-strings
 python -m unittest discover -s tools
 ~~~
 
@@ -34,6 +37,8 @@ The viewer uses WinForms on .NET Framework. The import inspector requires Python
 `--present` creates a short-lived window, presents one triangle through a DXGI swap chain, and checks the rendered pixels. `--warp --present` runs the same check on WARP. `wsx_startup_trace` launches the specified executable, reports loaded images, debug strings, exceptions, and its exit code, then detaches after the observation limit if it is still running. It does not modify the executable or its files. Run it only with a build you are authorized to launch.
 
 The import inspector selects the launch executable in `MicrosoftGame.Config` or `AppxManifest.xml`. Supply its name explicitly for a folder with multiple entries. A manifest-selected executable must be present. For an explicit name, use `--require-entry` to make a missing file fail the command. The report records the AMD64 entry point, SHA-256, and the first visible gap in the executable's direct regular imports.
+
+`rbf0_tree.py` is a read-only parser for the RBF0 trees found in readable RPF9 zlib streams. A full scan reports stream, resource, and record counts; `--find` searches string, descriptor, and text values. `--offset` selects one compressed resource, and `--dump-strings` prints its values. The sample offset above is from the examined local `data.rpf`; offsets vary between package builds.
 
 Add `-DWSX_DXC_DIR="<x64 DXC directory>"` to the first CMake command to enable the tests for SM 6.6, FSSM translation and DXR 1.1. The corresponding SDK headers include `dxcapi.h`. See the [shader guide](SHADERS.md) for runtime requirements and commands.
 

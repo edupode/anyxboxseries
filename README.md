@@ -23,6 +23,8 @@ See [Build on Windows](docs/BUILD.md) to compile or contribute changes. The [sha
 
 The graphics probe and Signal Run have passed on an NVIDIA RTX 5070 Ti Laptop GPU and in WARP. Signal Run verifies a real DXGI swap chain and reads back pixels from its menu and game frames. The GTA VI build examined remains blocked before the game starts. It needs the title executable and support for the APIs it calls. See [Compatibility](docs/COMPATIBILITY.md).
 
+The [local status dashboard](docs/status.html) summarizes only measurements and capabilities verified in this repository. It does not count GTA VI startup or menu rendering as working.
+
 The Direct3D 12 shader probe checks SM 6.6 compute and DXR 1.1 inline ray tracing. The preparation tool can inspect DXBC/DXIL, unpack FSSM, and lift a subset of RDNA 2 scalar instructions into HLSL for the compute probe.
 
 ![A verified Direct3D 12 test frame](docs/frame.png)
@@ -33,9 +35,13 @@ In viewer/source, Launcher.cs runs the resource viewer and PackageReader.cs read
 
 In tools, inspect_xbox_imports.py reads regular and delay load imports with Visual Studio DUMPBIN. It checks the requested libraries against the build folder, System32, and the Windows API set contracts. With `--shims`, it also compares those imports with the export tables of candidate DLLs.
 
+`inspect_ui_resources.py` indexes RBF0 schema roots in readable zlib streams in local RPF9 archives. It reports stream offsets and aggregate schema counts without writing archive data.
+
+`rbf0_tree.py` walks the readable zlib streams in an RPF9 archive, parses complete RBF0 record trees, and can search their strings. It is read-only and does not recover the encrypted archive table of contents or turn UI resources into a running game.
+
 In native, bootstrap.cpp opens a DLL and passes a Direct3D 12 device and an optional build path to its WsxStartV1 entry point. The function signature lives in boot_api.h. The included implementation in boot_graphics.cpp opens the build manifest when given a path and draws the test frame. `startup_trace.cpp` launches a selected Windows executable and records its loaded images, debug strings, exceptions, and exit status for startup diagnosis.
 
-The Direct3D bridge is implemented in d3d12_xs.cpp, with its exports declared in d3d12_xs.def. It forwards two root signature functions to the Windows runtime and records the result in shim_log.txt. graphics_runtime.h declares the device and frame operations implemented in graphics_probe.cpp. graphics_probe_main.cpp exposes those operations as a standalone test. root_signature_test.cpp checks the round trip and error cases, and CMakeLists.txt assembles the native targets and tests.
+The Direct3D bridge is implemented in d3d12_xs.cpp, with its exports declared in d3d12_xs.def. It forwards two root signature functions to the Windows runtime and records the result in shim_log.txt. The `xmem` target builds the four named exports used by the package DLLs from the MIT-licensed Xbox2Windows shim; its upstream license is installed alongside the portable build. `wsx_xmem_shim_test` checks those exports, heap allocation, a graphics allocation query, and the unsupported working-set result. `wsx_pe_map.dll` builds the Xbox2Windows PE mapper, and its synthetic fixture checks mapping an AMD64 executable, running its entry point and releasing the mapped image. This fixture does not contain game code. graphics_runtime.h declares the device and frame operations implemented in graphics_probe.cpp. graphics_probe_main.cpp exposes those operations as a standalone test. root_signature_test.cpp checks the round trip and error cases, and CMakeLists.txt assembles the native targets and tests.
 
 sample_game.cpp implements Signal Run as a Windows module that reuses `WsxStartV1`. It handles keyboard messages and reads gamepad state through GameInput, falling back to XInput when GameInput is unavailable. window_presenter.cpp creates the DXGI swap chain, presents the frames and supports pixel readback in the tests.
 

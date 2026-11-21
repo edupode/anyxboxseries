@@ -9,6 +9,7 @@
 //
 
 #include "boot_api.h"
+#include "gameinput_devices.h"
 #include "gameinput_input.h"
 #include "window_presenter.h"
 
@@ -16,9 +17,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <string_view>
 #include <type_traits>
 #include <vector>
@@ -290,10 +293,38 @@ public:
             return;
         }
         game_input_.Attach(game_input);
-        report("GameInput runtime initialized; XInput fallback remains active.\n");
+        const HRESULT callback_status = game_input_->RegisterDeviceCallback(
+            nullptr, GameInputKindGamepad, GameInputDeviceConnected, GameInputBlockingEnumeration,
+            this, &GameInputRuntime::device_callback, &callback_token_);
+        if (FAILED(callback_status) || callback_token_ == GAMEINPUT_INVALID_CALLBACK_TOKEN_VALUE) {
+            char message[160]{};
+            std::snprintf(message, sizeof(message),
+                          "GameInput device callback registration failed with HRESULT 0x%08lX; "
+                          "aggregate polling and XInput fallback remain active.\n",
+                          static_cast<unsigned long>(callback_status));
+            report(message);
+            return;
+        }
+        callback_registered_ = true;
+        report("GameInput runtime initialized; controller hot-plug tracking enabled; "
+               "XInput fallback remains active.\n");
     }
 
     ~GameInputRuntime() {
+        if (game_input_ && callback_registered_) {
+            game_input_->StopCallback(callback_token_);
+            while (!game_input_->UnregisterCallback(callback_token_, 5'000'000)) {
+                report("Waiting for GameInput device callback shutdown.\n");
+                Sleep(1);
+            }
+            callback_registered_ = false;
+        }
+        {
+            std::lock_guard lock(devices_mutex_);
+            for (auto& device : devices_) {
+                device.Reset();
+            }
+        }
         game_input_.Reset();
         if (module_) {
             FreeLibrary(module_);
@@ -313,9 +344,86 @@ public:
             return false;
         }
 
+        if (callback_registered_) {
+            std::array<Microsoft::WRL::ComPtr<IGameInputDevice>, gameinput_device_capacity> devices;
+            {
+                std::lock_guard lock(devices_mutex_);
+                devices = devices_;
+            }
+
+            bool has_reading = false;
+            for (const auto& device : devices) {
+                if (!device) {
+                    continue;
+                }
+                WORD device_buttons = 0;
+                if (read_gamepad(device.Get(), device_buttons)) {
+                    has_reading = true;
+                    buttons |= device_buttons;
+                }
+            }
+            return has_reading;
+        }
+
+        return read_gamepad(nullptr, buttons);
+    }
+
+private:
+    static void CALLBACK device_callback(
+        GameInputCallbackToken, void* context, IGameInputDevice* device, std::uint64_t,
+        GameInputDeviceStatus current_status, GameInputDeviceStatus previous_status) noexcept {
+        auto* runtime = static_cast<GameInputRuntime*>(context);
+        if (runtime && device) {
+            runtime->on_device_change(device, current_status, previous_status);
+        }
+    }
+
+    void on_device_change(
+        IGameInputDevice* device, GameInputDeviceStatus current_status,
+        GameInputDeviceStatus previous_status) noexcept {
+        bool capacity_exceeded = false;
+        try {
+            std::lock_guard lock(devices_mutex_);
+            GameInputDeviceIdentities identities{};
+            for (std::size_t index = 0; index < devices_.size(); ++index) {
+                identities[index] = devices_[index].Get();
+            }
+
+            GameInputDeviceUpdate update;
+            if ((current_status & GameInputDeviceConnected) != 0) {
+                update = gameinput_update_device(identities, device, true);
+            } else if ((previous_status & GameInputDeviceConnected) != 0) {
+                update = gameinput_update_device(identities, device, false);
+            }
+
+            switch (update.transition) {
+            case GameInputDeviceTransition::Added:
+                devices_[update.slot] = device;
+                break;
+            case GameInputDeviceTransition::Removed:
+                devices_[update.slot].Reset();
+                break;
+            case GameInputDeviceTransition::Full:
+                capacity_exceeded = !capacity_warning_emitted_.exchange(true);
+                break;
+            case GameInputDeviceTransition::Unchanged:
+                break;
+            }
+        } catch (...) {
+            report("GameInput device callback could not update controller state.\n");
+            return;
+        }
+
+        if (capacity_exceeded) {
+            report("GameInput controller limit reached; only the first four devices are tracked.\n");
+        }
+    }
+
+    bool read_gamepad(IGameInputDevice* device, WORD& buttons) noexcept {
+        buttons = 0;
         Microsoft::WRL::ComPtr<IGameInputReading> reading;
         const HRESULT status = game_input_->GetCurrentReading(
-            GameInputKindGamepad, nullptr, reading.GetAddressOf());
+            GameInputKindGamepad, device, reading.GetAddressOf());
         if (gameinput_is_no_reading(status)) {
             last_read_status_ = S_OK;
             return false;
@@ -341,7 +449,6 @@ public:
         return true;
     }
 
-private:
     static void report(const char* message) noexcept {
         std::fputs(message, stdout);
         OutputDebugStringA(message);
@@ -349,6 +456,11 @@ private:
 
     HMODULE module_ = nullptr;
     Microsoft::WRL::ComPtr<IGameInput> game_input_;
+    std::array<Microsoft::WRL::ComPtr<IGameInputDevice>, gameinput_device_capacity> devices_{};
+    std::mutex devices_mutex_;
+    std::atomic<bool> capacity_warning_emitted_ = false;
+    GameInputCallbackToken callback_token_ = GAMEINPUT_INVALID_CALLBACK_TOKEN_VALUE;
+    bool callback_registered_ = false;
     HRESULT last_read_status_ = S_OK;
 };
 
