@@ -15,13 +15,15 @@ Extract the latest portable Windows x64 ZIP and double-click `Start-SignalRun.cm
 .\bin\wsx_bootstrap.exe --sample
 ~~~
 
-Signal Run is a small Windows game that tests the loader's menu, frame presentation and input. Use the arrow keys or the controller D pad to move. Enter or A confirms and Esc or B exits. Run the bootstrap without `--sample` for the standalone graphics check.
+Signal Run is a small Windows game that tests the loader's menu, frame presentation and input. It reads controller buttons through the Windows GameInput runtime, with XInput as a fallback. Use the arrow keys or D pad to move. Enter or A confirms, Esc or B exits, and Y restarts. Run the bootstrap without `--sample` for the standalone graphics check.
 
-See [Build on Windows](docs/BUILD.md) to compile or contribute changes.
+See [Build on Windows](docs/BUILD.md) to compile or contribute changes. The [shader tools](docs/SHADERS.md) require Python for container preparation and Microsoft's DXC for runtime HLSL compilation.
 
 ## Current status
 
 The graphics probe and Signal Run have passed on an NVIDIA RTX 5070 Ti Laptop GPU and in WARP. Signal Run verifies a real DXGI swap chain and reads back pixels from its menu and game frames. The GTA VI build examined remains blocked before the game starts. It needs the title executable and support for the APIs it calls. See [Compatibility](docs/COMPATIBILITY.md).
+
+The Direct3D 12 shader probe checks SM 6.6 compute and DXR 1.1 inline ray tracing. The preparation tool can inspect DXBC/DXIL, unpack FSSM, and lift a subset of RDNA 2 scalar instructions into HLSL for the compute probe.
 
 ![A verified Direct3D 12 test frame](docs/frame.png)
 
@@ -31,11 +33,11 @@ In viewer/source, Launcher.cs runs the resource viewer and PackageReader.cs read
 
 In tools, inspect_xbox_imports.py reads regular and delay load imports with Visual Studio DUMPBIN. It checks the requested libraries against the build folder, System32, and the Windows API set contracts. With `--shims`, it also compares those imports with the export tables of candidate DLLs.
 
-In native, bootstrap.cpp opens a DLL and passes a Direct3D 12 device and an optional build path to its WsxStartV1 entry point. The function signature lives in boot_api.h. The included implementation in boot_graphics.cpp opens the build manifest when given a path and draws the test frame.
+In native, bootstrap.cpp opens a DLL and passes a Direct3D 12 device and an optional build path to its WsxStartV1 entry point. The function signature lives in boot_api.h. The included implementation in boot_graphics.cpp opens the build manifest when given a path and draws the test frame. `startup_trace.cpp` launches a selected Windows executable and records its loaded images, debug strings, exceptions, and exit status for startup diagnosis.
 
 The Direct3D bridge is implemented in d3d12_xs.cpp, with its exports declared in d3d12_xs.def. It forwards two root signature functions to the Windows runtime and records the result in shim_log.txt. graphics_runtime.h declares the device and frame operations implemented in graphics_probe.cpp. graphics_probe_main.cpp exposes those operations as a standalone test. root_signature_test.cpp checks the round trip and error cases, and CMakeLists.txt assembles the native targets and tests.
 
-sample_game.cpp implements Signal Run as a Windows module that reuses `WsxStartV1`. It handles keyboard messages and XInput button events. window_presenter.cpp creates the DXGI swap chain, presents the frames and supports pixel readback in the tests.
+sample_game.cpp implements Signal Run as a Windows module that reuses `WsxStartV1`. It handles keyboard messages and reads gamepad state through GameInput, falling back to XInput when GameInput is unavailable. window_presenter.cpp creates the DXGI swap chain, presents the frames and supports pixel readback in the tests.
 
 ## Licence and credits
 

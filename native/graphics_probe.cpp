@@ -18,6 +18,7 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -42,8 +43,11 @@ struct Failure {
 
 HRESULT report_error(const Failure& error) noexcept {
     const HRESULT status = FAILED(error.status) ? error.status : E_FAIL;
-    std::fprintf(stderr, "%s failed with 0x%08lX\n", error.operation,
-                 static_cast<unsigned long>(status));
+    std::array<char, 192> message{};
+    std::snprintf(message.data(), message.size(), "%s failed with 0x%08lX\n",
+                  error.operation, static_cast<unsigned long>(status));
+    std::fputs(message.data(), stderr);
+    OutputDebugStringA(message.data());
     return status;
 }
 
@@ -235,26 +239,58 @@ void await_frame(ID3D12Device* device, ID3D12CommandQueue* queue) {
     check(device->GetDeviceRemovedReason(), "GetDeviceRemovedReason");
 }
 
-std::vector<Pixel> draw_frame(ID3D12Device* device, ID3D12RootSignature* root, ID3D12PipelineState* pipeline) {
+ComPtr<IDXGISwapChain3> open_swap_chain(ID3D12CommandQueue* queue, HWND window) {
+    ComPtr<IDXGIFactory2> factory;
+    check(CreateDXGIFactory1(IID_PPV_ARGS(factory.GetAddressOf())), "CreateDXGIFactory1 (swap chain)");
+    DXGI_SWAP_CHAIN_DESC1 description{};
+    description.Width = width;
+    description.Height = height;
+    description.Format = format;
+    description.SampleDesc = {1, 0};
+    description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    description.BufferCount = 2;
+    description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    ComPtr<IDXGISwapChain1> created;
+    check(factory->CreateSwapChainForHwnd(queue, window, &description, nullptr, nullptr,
+          created.GetAddressOf()), "CreateSwapChainForHwnd");
+    ComPtr<IDXGISwapChain3> chain;
+    check(created.As(&chain), "Query IDXGISwapChain3");
+    return chain;
+}
+
+std::vector<Pixel> draw_frame(ID3D12Device* device, ID3D12RootSignature* root,
+                             ID3D12PipelineState* pipeline, HWND window) {
     constexpr auto clear_color = normalized(background);
     constexpr auto draw_color = normalized(foreground);
-    D3D12_RESOURCE_DESC texture{};
-    texture.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    texture.Width = width;
-    texture.Height = height;
-    texture.DepthOrArraySize = 1;
-    texture.MipLevels = 1;
-    texture.Format = format;
-    texture.SampleDesc = {1, 0};
-    texture.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    D3D12_CLEAR_VALUE clear{};
-    clear.Format = format;
-    std::memcpy(clear.Color, clear_color.data(), sizeof(clear.Color));
-    const auto target = make_resource(device, D3D12_HEAP_TYPE_DEFAULT, texture,
-        D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, "Create render target");
+    D3D12_COMMAND_QUEUE_DESC queue_description{};
+    queue_description.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    ComPtr<ID3D12CommandQueue> queue;
+    check(device->CreateCommandQueue(&queue_description, IID_PPV_ARGS(queue.GetAddressOf())), "CreateCommandQueue");
+    const auto chain = window ? open_swap_chain(queue.Get(), window) : ComPtr<IDXGISwapChain3>{};
+    ComPtr<ID3D12Resource> target;
+    if (chain) {
+        check(chain->GetBuffer(chain->GetCurrentBackBufferIndex(), IID_PPV_ARGS(target.GetAddressOf())),
+              "Get current swap chain buffer");
+    } else {
+        D3D12_RESOURCE_DESC description{};
+        description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        description.Width = width;
+        description.Height = height;
+        description.DepthOrArraySize = 1;
+        description.MipLevels = 1;
+        description.Format = format;
+        description.SampleDesc = {1, 0};
+        description.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_CLEAR_VALUE clear{};
+        clear.Format = format;
+        std::memcpy(clear.Color, clear_color.data(), sizeof(clear.Color));
+        target = make_resource(device, D3D12_HEAP_TYPE_DEFAULT, description,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, "Create render target");
+    }
 
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout{};
     UINT64 bytes = 0;
+    const auto texture = target->GetDesc();
     device->GetCopyableFootprints(&texture, 0, 1, 0, &layout, nullptr, nullptr, &bytes);
     D3D12_RESOURCE_DESC buffer{};
     buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -278,10 +314,6 @@ std::vector<Pixel> draw_frame(ID3D12Device* device, ID3D12RootSignature* root, I
     const auto view = views->GetCPUDescriptorHandleForHeapStart();
     device->CreateRenderTargetView(target.Get(), nullptr, view);
 
-    D3D12_COMMAND_QUEUE_DESC queue_description{};
-    queue_description.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    ComPtr<ID3D12CommandQueue> queue;
-    check(device->CreateCommandQueue(&queue_description, IID_PPV_ARGS(queue.GetAddressOf())), "CreateCommandQueue");
     ComPtr<ID3D12CommandAllocator> allocator;
     check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
           IID_PPV_ARGS(allocator.GetAddressOf())), "CreateCommandAllocator");
@@ -289,6 +321,15 @@ std::vector<Pixel> draw_frame(ID3D12Device* device, ID3D12RootSignature* root, I
     check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(),
           pipeline, IID_PPV_ARGS(commands.GetAddressOf())), "CreateCommandList");
 
+    const auto transition = [&](D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {target.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after};
+        commands->ResourceBarrier(1, &barrier);
+    };
+    if (chain) {
+        transition(D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
     const D3D12_VIEWPORT viewport{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
     const D3D12_RECT scissor{0, 0, width, height};
     commands->RSSetViewports(1, &viewport);
@@ -300,11 +341,7 @@ std::vector<Pixel> draw_frame(ID3D12Device* device, ID3D12RootSignature* root, I
     commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commands->DrawInstanced(3, 1, 0, 0);
 
-    D3D12_RESOURCE_BARRIER transition{};
-    transition.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    transition.Transition = {target.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE};
-    commands->ResourceBarrier(1, &transition);
+    transition(D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     D3D12_TEXTURE_COPY_LOCATION source{};
     source.pResource = target.Get();
     source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -313,10 +350,18 @@ std::vector<Pixel> draw_frame(ID3D12Device* device, ID3D12RootSignature* root, I
     destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     destination.PlacedFootprint = layout;
     commands->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    if (chain) {
+        transition(D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+    }
     check(commands->Close(), "Close command list");
     ID3D12CommandList* lists[]{commands.Get()};
     queue->ExecuteCommandLists(1, lists);
+    const HRESULT present_status = chain ? chain->Present(1, 0) : S_OK;
     await_frame(device, queue.Get());
+    check(present_status, "IDXGISwapChain::Present");
+    if (present_status != S_OK) {
+        throw Failure{"DXGI did not present to the window", E_FAIL};
+    }
     std::puts("Command queue fence completed.");
 
     std::vector<Pixel> pixels(width * height);
@@ -373,6 +418,10 @@ HRESULT create_graphics_device(AdapterMode mode, ID3D12Device** device) noexcept
         const bool software = (runtime.description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
         std::printf("Direct3D 12 initialized: %ls (%s)\n", runtime.description.Description,
                     software ? "WARP" : "hardware");
+        std::array<wchar_t, 192> message{};
+        std::swprintf(message.data(), message.size(), L"Direct3D 12 initialized: %ls (%ls)",
+                      runtime.description.Description, software ? L"WARP" : L"hardware");
+        OutputDebugStringW(message.data());
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 features{};
         if (SUCCEEDED(runtime.device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &features, sizeof(features)))) {
             const auto tier = static_cast<UINT>(features.RaytracingTier);
@@ -387,7 +436,7 @@ HRESULT create_graphics_device(AdapterMode mode, ID3D12Device** device) noexcept
     }
 }
 
-HRESULT verify_graphics_frame(ID3D12Device* device, const wchar_t* frame_path) noexcept {
+HRESULT verify_graphics_frame(ID3D12Device* device, const wchar_t* frame_path, HWND output_window) noexcept {
     if (!device) {
         return E_POINTER;
     }
@@ -396,10 +445,15 @@ HRESULT verify_graphics_frame(ID3D12Device* device, const wchar_t* frame_path) n
         std::puts("Windows loader and both d3d12_xs root signature imports verified.");
         const auto pipeline = make_pipeline(device, root.Get());
         std::puts("Vertex shader, pixel shader and pipeline state ready.");
-        const auto pixels = draw_frame(device, root.Get(), pipeline.Get());
+        const auto pixels = draw_frame(device, root.Get(), pipeline.Get(), output_window);
         verify_frame(pixels);
         if (frame_path) {
             save_frame(frame_path, pixels);
+        }
+        if (output_window) {
+            constexpr char message[] = "DXGI triangle presented and verified.";
+            std::puts(message);
+            OutputDebugStringA(message);
         }
         return S_OK;
     } catch (const Failure& error) {

@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path, PureWindowsPath
 import re
@@ -22,6 +23,7 @@ import shutil
 import subprocess
 import sys
 from tempfile import NamedTemporaryFile
+import xml.etree.ElementTree as ET
 
 
 MODULE_LINE = re.compile(r" {4}(\S.*)")
@@ -31,6 +33,7 @@ BOUND_ADDRESS = re.compile(r"^(?:[0-9A-Fa-f]{16}|[0-9A-Fa-f]{8})\s+")
 EXPORT_HEADER = re.compile(r"ordinal\s+hint\s+RVA\s+name")
 NAMED_EXPORT = re.compile(r"(\d+)\s+[0-9A-Fa-f]{1,4}\s+(?:[0-9A-Fa-f]{8}\s+)?(\S+)(?:\s+(.*))?")
 ORDINAL_EXPORT = re.compile(r"(\d+)\s+(?:[0-9A-Fa-f]{8}\s+)?\[NONAME\](?:\s+(.*))?")
+ENTRY_RVA = re.compile(r"\s*([0-9A-Fa-f]+)\s+entry point\b.*")
 
 SYSTEM = "System32"
 API_SET = "implemented API set contract"
@@ -65,6 +68,57 @@ class ExportTable:
         if record.ordinal is not None:
             return self.ordinals.get(record.ordinal)
         return self.names.get(record.name)
+
+
+def manifest_entry(root: Path) -> tuple[Path, str]:
+    """Select the only Scarlett executable, or the only declared application."""
+    config = root / "MicrosoftGame.Config"
+    appx = root / "AppxManifest.xml"
+    if config.is_file():
+        path = config
+        selector = "./{*}ExecutableList/{*}Executable"
+        name_attribute = "Name"
+    elif appx.is_file():
+        path = appx
+        selector = "./{*}Applications/{*}Application"
+        name_attribute = "Executable"
+    else:
+        raise ValueError("No MicrosoftGame.Config or AppxManifest.xml. Specify an executable name.")
+    with path.open("rb") as stream:
+        limit = 1024 * 1024
+        xml = stream.read(limit + 1)
+    if len(xml) > limit:
+        raise ValueError(f"{path.name} exceeds the 1 MiB manifest limit.")
+    elements = ET.fromstring(xml).findall(selector)
+    entries = [(item.get(name_attribute, "").strip(), item.get("TargetDeviceFamily", "").strip())
+               for item in elements if item.get(name_attribute, "").strip()]
+    console = [(name, target) for name, target in entries if target.casefold() == "scarlett"]
+    choices = dict.fromkeys(console or entries)
+    if len(choices) != 1:
+        raise ValueError(f"{path.name} does not select a single executable. Specify its name.")
+    name, target = next(iter(choices))
+    target = target or "unspecified"
+    return Path(name), f"{target} ({path.name})"
+
+
+def executable_rva(headers: str) -> int:
+    lines = headers.splitlines()
+    image = any(line.strip() == "File Type: EXECUTABLE IMAGE" for line in lines)
+    amd64 = any(re.match(r"^\s*8664\s+machine\b", line) for line in lines)
+    pe32plus = any(re.match(r"^\s*20[Bb]\s+magic\b", line) for line in lines)
+    match = next((entry for line in lines if (entry := ENTRY_RVA.fullmatch(line))), None)
+    entry_rva = int(match[1], 16) if match else 0
+    if not (image and amd64 and pe32plus and entry_rva):
+        raise ValueError("Expected an AMD64 PE32+ executable with a nonzero entry point.")
+    return entry_rva
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def locate_dumpbin(explicit):
@@ -187,6 +241,7 @@ def compare_shims(dumpbin, shim_directory, libraries, states):
         "The comparison checks PE export names and ordinals. Runtime behavior needs a boot test.",
     ]
     read_errors = 0
+    listed = set()
     for library, records in sorted(libraries.items()):
         if states[library] in (SYSTEM, API_SET) or PureWindowsPath(library).name != library:
             continue
@@ -205,6 +260,7 @@ def compare_shims(dumpbin, shim_directory, libraries, states):
 
         matches = [(record, exports.forwarder(record)) for record in records]
         matched = sum(forwarded is not None for _, forwarded in matches)
+        listed.update(record for record, forwarded in matches if forwarded is not None)
         lines.append(f"  {library} · {matched} of {len(records)} import records have a matching export")
         for record, forwarded in matches:
             if forwarded is None:
@@ -215,7 +271,7 @@ def compare_shims(dumpbin, shim_directory, libraries, states):
                 status = "export listed"
             lines.append(f"    {record.module} · {record.kind} · {record.label} · {status}")
 
-    return "\n".join(lines) + "\n", read_errors
+    return "\n".join(lines) + "\n", read_errors, listed
 
 
 def load_api_set_query():
@@ -302,18 +358,26 @@ def render_report(root, executable, main_present, system32, dumpbin, scan, failu
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path, help="Folder containing the Xbox build")
-    parser.add_argument("executable", type=Path, help="Name or relative path of the main PE file")
+    parser.add_argument("executable", type=Path, nargs="?",
+                        help="Main PE file, or omit to read the package manifest")
     parser.add_argument("--output", "--saida", type=Path, default=Path(__file__).with_name("xbox_imports.txt"))
     parser.add_argument("--dumpbin", type=Path, help="Path to Visual Studio DUMPBIN")
     parser.add_argument("--shims", type=Path, metavar="DIRECTORY",
                         help="Compare imports with PE exports in matching candidate shim DLLs")
+    parser.add_argument("--require-entry", action="store_true",
+                        help="Fail if the selected executable is missing or lacks a valid AMD64 entry")
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("This tool checks dependencies against a local Windows installation.")
     root = args.folder.resolve()
     if not root.is_dir():
         parser.error(f"Folder not found · {root}")
-    executable = (root / args.executable).resolve()
+    declared_target = None
+    try:
+        selected, declared_target = (args.executable, None) if args.executable else manifest_entry(root)
+        executable = (root / selected).resolve()
+    except (ValueError, OSError, ET.ParseError) as error:
+        parser.error(str(error))
     if not executable.is_relative_to(root):
         parser.error("The executable must be inside the build folder.")
     shim_directory = args.shims.resolve() if args.shims else None
@@ -328,6 +392,15 @@ def main():
         parser.error(f"System folder unavailable · {system32}")
 
     main_present = executable.is_file()
+    entry_rva = None
+    entry_hash = None
+    entry_error = None
+    if main_present:
+        try:
+            entry_rva = executable_rva(run_dumpbin(dumpbin, "/headers", executable))
+            entry_hash = file_sha256(executable)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            entry_error = str(error)
     dlls = sorted(file for file in root.rglob("*.dll") if file.is_file())
     local_files = {dll.name.casefold() for dll in dlls}
     files = ([executable] if main_present and executable not in dlls else []) + dlls
@@ -349,9 +422,29 @@ def main():
     report = render_report(root, executable, main_present, system32, dumpbin,
                            scan, failures, libraries, states)
     shim_errors = 0
+    listed = set()
     if shim_directory is not None:
-        coverage, shim_errors = compare_shims(dumpbin, shim_directory, libraries, states)
+        coverage, shim_errors, listed = compare_shims(dumpbin, shim_directory, libraries, states)
         report += coverage
+    report += "\nMain executable preflight\n"
+    if declared_target:
+        report += f"  Declared target: {declared_target}\n"
+    if entry_error:
+        report += f"  PE header or hash check failed: {entry_error}\n"
+    elif entry_rva is not None:
+        report += f"  AMD64 PE32+ · entry point RVA 0x{entry_rva:X}\n  SHA-256: {entry_hash}\n"
+    else:
+        report += f"  Missing file: {executable.relative_to(root)}\n"
+
+    entry_imports = scan.get(str(executable.relative_to(root)))
+    if entry_imports is not None:
+        first = next((record for record in entry_imports if record.kind == "normal" and
+                      states[record.library] == MISSING and record not in listed), None)
+        if first:
+            report += f"  First gap in direct regular imports: {first.library} · {first.label}\n"
+        else:
+            report += "  No missing library or candidate export found in direct regular imports.\n"
+        report += "  This check does not resolve transitive dependencies or run the program.\n"
     destination = args.output.resolve()
     with NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent, delete=False) as output:
         temporary = Path(output.name)
@@ -363,12 +456,21 @@ def main():
 
     unavailable = [name for name, state in states.items() if state == MISSING]
     print(f"Files inspected: {len(scan)}. Read errors: {len(failures)}.")
-    print("Main executable: " + ("present." if main_present else "missing."))
+    entry_display = str(executable.relative_to(root))
+    if not main_present:
+        print(f"Main executable missing: {entry_display}")
+    elif entry_error:
+        print(f"Main executable check failed: {entry_error}")
+    else:
+        print(f"Main executable: {entry_display} (AMD64, entry point RVA 0x{entry_rva:X})")
+    if declared_target:
+        print(f"Declared target: {declared_target}")
     print("Missing dependencies: " + (", ".join(sorted(unavailable)) or "none"))
     if shim_directory is not None:
         print(f"Shim comparison complete. Export read errors: {shim_errors}.")
     print(f"Report: {destination}")
-    return int(bool(failures or shim_errors))
+    require_entry = args.require_entry or args.executable is None
+    return int(bool(failures or shim_errors or entry_error or (require_entry and not main_present)))
 
 
 if __name__ == "__main__":

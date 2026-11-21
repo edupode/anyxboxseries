@@ -8,9 +8,11 @@
 # The Initial Developer of the Original Code is edupode. All portions of the code written by edupode are Copyright (c) 2026 edupode. All Rights Reserved.
 #
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
-from inspect_xbox_imports import Import, parse_exports
+from inspect_xbox_imports import Import, executable_rva, manifest_entry, parse_exports
 
 
 class ExportTableTests(unittest.TestCase):
@@ -44,6 +46,43 @@ File Type: DLL
     def test_executable_cannot_be_compared_as_a_shim(self):
         with self.assertRaisesRegex(ValueError, "not a PE DLL"):
             parse_exports("File Type: EXECUTABLE IMAGE\n  Summary\n")
+
+
+class EntryTests(unittest.TestCase):
+    def test_config_prefers_the_unique_scarlett_entry(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "MicrosoftGame.Config").write_text(
+                '<Game xmlns="https://example.invalid/config"><ExecutableList>'
+                '<Executable Name="pc.exe" TargetDeviceFamily="Desktop"/>'
+                '<Executable Name="Bin/scarlett.exe" TargetDeviceFamily="Scarlett"/>'
+                '</ExecutableList></Game>', encoding="utf-8")
+            self.assertEqual(manifest_entry(root),
+                             (Path("Bin/scarlett.exe"), "Scarlett (MicrosoftGame.Config)"))
+
+    def test_appx_manifest_handles_a_single_application_and_rejects_ambiguity(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "AppxManifest.xml"
+            manifest.write_text('<Package xmlns="https://example.invalid/manifest"><Applications>'
+                                '<Application Executable="sample.exe"/>'
+                                '</Applications></Package>', encoding="utf-8")
+            self.assertEqual(manifest_entry(root),
+                             (Path("sample.exe"), "unspecified (AppxManifest.xml)"))
+            manifest.write_text('<Package><Applications><Application Executable="one.exe"/>'
+                                '<Application Executable="two.exe"/></Applications></Package>',
+                                encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "single executable"):
+                manifest_entry(root)
+
+    def test_header_requires_an_amd64_executable_with_an_entry(self):
+        headers = ("File Type: EXECUTABLE IMAGE\n    8664 machine (x64)\n"
+                   "    20B magic # (PE32+)\n    6130 entry point (0000000140006130)\n")
+        self.assertEqual(executable_rva(headers), 0x6130)
+        for old, new in (("8664", "AA64"), ("EXECUTABLE IMAGE", "DLL"), ("6130 entry", "0 entry"),
+                         ("20B", "10B")):
+            with self.subTest(old=old), self.assertRaisesRegex(ValueError, "AMD64 PE32\\+"):
+                executable_rva(headers.replace(old, new))
 
 
 if __name__ == "__main__":

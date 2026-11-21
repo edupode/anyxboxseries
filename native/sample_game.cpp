@@ -9,6 +9,7 @@
 //
 
 #include "boot_api.h"
+#include "gameinput_input.h"
 #include "window_presenter.h"
 
 #include <Xinput.h>
@@ -259,6 +260,98 @@ void gamepad_keys(GameState& game, WORD pressed) noexcept {
     }
 }
 
+class GameInputRuntime {
+public:
+    GameInputRuntime() noexcept {
+        module_ = LoadLibraryExW(L"GameInput.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!module_) {
+            report("GameInput runtime unavailable; XInput fallback remains active.\n");
+            return;
+        }
+
+        using CreateFunction = HRESULT(WINAPI*)(IGameInput**);
+        const auto create = reinterpret_cast<CreateFunction>(GetProcAddress(module_, "GameInputCreate"));
+        if (!create) {
+            report("GameInputCreate is unavailable; XInput fallback remains active.\n");
+            return;
+        }
+
+        IGameInput* game_input = nullptr;
+        const HRESULT status = create(&game_input);
+        if (FAILED(status) || !game_input) {
+            char message[128]{};
+            std::snprintf(message, sizeof(message),
+                          "GameInputCreate failed with HRESULT 0x%08lX; XInput fallback remains active.\n",
+                          static_cast<unsigned long>(status));
+            report(message);
+            if (game_input) {
+                game_input->Release();
+            }
+            return;
+        }
+        game_input_.Attach(game_input);
+        report("GameInput runtime initialized; XInput fallback remains active.\n");
+    }
+
+    ~GameInputRuntime() {
+        game_input_.Reset();
+        if (module_) {
+            FreeLibrary(module_);
+        }
+    }
+
+    GameInputRuntime(const GameInputRuntime&) = delete;
+    GameInputRuntime& operator=(const GameInputRuntime&) = delete;
+
+    bool available() const noexcept {
+        return game_input_.Get() != nullptr;
+    }
+
+    bool current_gamepad_buttons(WORD& buttons) noexcept {
+        buttons = 0;
+        if (!game_input_) {
+            return false;
+        }
+
+        Microsoft::WRL::ComPtr<IGameInputReading> reading;
+        const HRESULT status = game_input_->GetCurrentReading(
+            GameInputKindGamepad, nullptr, reading.GetAddressOf());
+        if (gameinput_is_no_reading(status)) {
+            last_read_status_ = S_OK;
+            return false;
+        }
+        if (FAILED(status) || !reading) {
+            if (status != last_read_status_) {
+                char message[128]{};
+                std::snprintf(message, sizeof(message),
+                              "GameInput GetCurrentReading failed with HRESULT 0x%08lX.\n",
+                              static_cast<unsigned long>(status));
+                report(message);
+                last_read_status_ = status;
+            }
+            return false;
+        }
+        last_read_status_ = S_OK;
+
+        GameInputGamepadState state{};
+        if (!reading->GetGamepadState(&state)) {
+            return false;
+        }
+        buttons = gameinput_buttons_to_xinput(state.buttons);
+        return true;
+    }
+
+private:
+    static void report(const char* message) noexcept {
+        std::fputs(message, stdout);
+        OutputDebugStringA(message);
+    }
+
+    HMODULE module_ = nullptr;
+    Microsoft::WRL::ComPtr<IGameInput> game_input_;
+    HRESULT last_read_status_ = S_OK;
+};
+
 WORD connected_gamepad_buttons() noexcept {
     XINPUT_STATE input{};
     for (DWORD index = 0; index < XUSER_MAX_COUNT; ++index) {
@@ -366,6 +459,7 @@ HRESULT test_game(HWND window, wsx::WindowPresenter& presenter, GameState& game,
 
 HRESULT run_game(ID3D12Device& device, bool self_test) {
     GameState game;
+    GameInputRuntime game_input;
     const auto instance = GetModuleHandleW(nullptr);
     WNDCLASSW window_class{};
     window_class.lpfnWndProc = &window_proc;
@@ -401,11 +495,20 @@ HRESULT run_game(ID3D12Device& device, bool self_test) {
     Scene scene;
     scene.reserve(2048);
     if (self_test) {
+        WORD buttons = 0;
+        if (game_input.current_gamepad_buttons(buttons)) {
+            std::puts("GameInput returned a gamepad reading during the self test.");
+        } else if (game_input.available()) {
+            std::puts("GameInput reading path ready; no current gamepad reading.");
+        }
         return test_game(window.get(), presenter, game, scene);
     }
 
     ShowWindow(window.get(), SW_SHOWNORMAL);
-    WORD previous_buttons = connected_gamepad_buttons();
+    WORD previous_buttons = 0;
+    if (!game_input.current_gamepad_buttons(previous_buttons)) {
+        previous_buttons = connected_gamepad_buttons();
+    }
     while (!game.exiting) {
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
@@ -423,7 +526,10 @@ HRESULT run_game(ID3D12Device& device, bool self_test) {
             WaitMessage();
             continue;
         }
-        const WORD buttons = connected_gamepad_buttons();
+        WORD buttons = 0;
+        if (!game_input.current_gamepad_buttons(buttons)) {
+            buttons = connected_gamepad_buttons();
+        }
         if (GetForegroundWindow() == window.get()) {
             const auto pressed = static_cast<WORD>(buttons & ~previous_buttons);
             gamepad_keys(game, pressed);
