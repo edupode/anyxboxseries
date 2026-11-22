@@ -1,0 +1,14 @@
+[package]
+name = "wsx-tombox-xmem"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Separately built XMem candidate based on the MIT-licensed TomBox xmem compatibility DLL."
+
+[lib]
+name = "xmem"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]

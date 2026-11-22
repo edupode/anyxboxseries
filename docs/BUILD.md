@@ -34,6 +34,8 @@ python -m unittest discover -s tools
 
 The viewer uses WinForms on .NET Framework. The import inspector requires Python 3.10 or newer and DUMPBIN. Signal Run loads the Windows GameInput runtime from System32 at startup; if it is unavailable, the sample keeps its XInput fallback.
 
+If Cargo for `x86_64-pc-windows-msvc` is installed, CMake also builds the separate TomBox XMem candidate at `build/candidates/tombox-xmem/xmem.dll` and enables its Rust source tests and Windows smoke test. The Rust tests run serially because they share simulated physical-memory state. Without the matching Cargo toolchain, the regular C++ build and test suite continue to work, and the existing Xbox2Windows XMem shim remains the default provider. The candidate's upstream MIT notice is included with portable installs.
+
 `--present` creates a short-lived window, presents one triangle through a DXGI swap chain, and checks the rendered pixels. `--warp --present` runs the same check on WARP. `wsx_startup_trace` launches the specified executable, reports loaded images, debug strings, exceptions, and its exit code, then detaches after the observation limit if it is still running. It does not modify the executable or its files. Run it only with a build you are authorized to launch.
 
 The import inspector selects the launch executable in `MicrosoftGame.Config` or `AppxManifest.xml`. Supply its name explicitly for a folder with multiple entries. A manifest-selected executable must be present. For an explicit name, use `--require-entry` to make a missing file fail the command. The report records the AMD64 entry point, SHA-256, and the first visible gap in the executable's direct regular imports.

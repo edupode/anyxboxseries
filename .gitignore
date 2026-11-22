@@ -1,6 +1,7 @@
 /bin/
 /build/
 /out/
+native/third_party/tombox-xmem/target/
 **/__pycache__/
 *.pyc
 *.exe

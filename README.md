@@ -45,6 +45,8 @@ The Direct3D bridge is implemented in d3d12_xs.cpp, with its exports declared in
 
 sample_game.cpp implements Signal Run as a Windows module that reuses `WsxStartV1`. It handles keyboard messages and reads gamepad state through GameInput, falling back to XInput when GameInput is unavailable. window_presenter.cpp creates the DXGI swap chain, presents the frames and supports pixel readback in the tests.
 
+When Cargo is installed, CMake also builds a broader TomBox XMem DLL candidate at `build/candidates/tombox-xmem/xmem.dll`. It has its own MIT notice, source tests, and Windows smoke test. The current four-export Xbox2Windows shim stays the default until the candidate can be checked with an authorized title executable.
+
 ## Licence and credits
 
 AnyXboxSeries is open source under the [Common Public Attribution License 1.0](LICENSE). You may use, modify and redistribute the covered code without a licence fee under its terms.

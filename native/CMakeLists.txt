@@ -30,6 +30,52 @@ add_library(xmem SHARED
     "${WSX_XMEM_SOURCE_DIR}/era_heap.cpp"
     "${WSX_XMEM_SOURCE_DIR}/era_query.cpp")
 target_include_directories(xmem PRIVATE "${WSX_XMEM_SOURCE_DIR}")
+find_program(WSX_CARGO_EXECUTABLE cargo)
+set(WSX_TOMBOX_XMEM_AVAILABLE FALSE)
+if(WSX_CARGO_EXECUTABLE)
+    execute_process(
+        COMMAND "${WSX_CARGO_EXECUTABLE}" -vV
+        OUTPUT_VARIABLE WSX_CARGO_DETAILS
+        RESULT_VARIABLE WSX_CARGO_RESULT
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(WSX_CARGO_RESULT EQUAL 0 AND
+       WSX_CARGO_DETAILS MATCHES "host: x86_64-pc-windows-msvc")
+        set(WSX_TOMBOX_XMEM_AVAILABLE TRUE)
+    else()
+        message(STATUS "Skipping TomBox XMem candidate: Cargo host must be x86_64-pc-windows-msvc.")
+    endif()
+endif()
+if(WSX_TOMBOX_XMEM_AVAILABLE)
+    set(WSX_TOMBOX_XMEM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tombox-xmem")
+    set(WSX_TOMBOX_XMEM_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/tombox-xmem-target")
+    set(WSX_TOMBOX_XMEM_CARGO_DLL
+        "${WSX_TOMBOX_XMEM_TARGET_DIR}/x86_64-pc-windows-msvc/release/xmem.dll")
+    set(WSX_TOMBOX_XMEM_CANDIDATE_DLL
+        "${CMAKE_CURRENT_BINARY_DIR}/candidates/tombox-xmem/xmem.dll")
+    file(GLOB_RECURSE WSX_TOMBOX_XMEM_SOURCES CONFIGURE_DEPENDS
+        "${WSX_TOMBOX_XMEM_ROOT}/src/*.rs"
+        "${WSX_TOMBOX_XMEM_ROOT}/tests/*.rs")
+    add_custom_command(
+        OUTPUT "${WSX_TOMBOX_XMEM_CANDIDATE_DLL}"
+        COMMAND "${CMAKE_COMMAND}" -E env
+            "CARGO_TARGET_DIR=${WSX_TOMBOX_XMEM_TARGET_DIR}"
+            "${WSX_CARGO_EXECUTABLE}" build --offline
+            --manifest-path "${WSX_TOMBOX_XMEM_ROOT}/Cargo.toml"
+            --target x86_64-pc-windows-msvc --release
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/candidates/tombox-xmem"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WSX_TOMBOX_XMEM_CARGO_DLL}" "${WSX_TOMBOX_XMEM_CANDIDATE_DLL}"
+        DEPENDS "${WSX_TOMBOX_XMEM_ROOT}/Cargo.toml"
+                "${WSX_TOMBOX_XMEM_ROOT}/Cargo.lock"
+                ${WSX_TOMBOX_XMEM_SOURCES}
+        BYPRODUCTS "${WSX_TOMBOX_XMEM_CARGO_DLL}"
+        VERBATIM)
+    add_custom_target(wsx_xmem_tombox_candidate ALL
+        DEPENDS "${WSX_TOMBOX_XMEM_CANDIDATE_DLL}")
+    add_executable(wsx_xmem_tombox_smoke xmem_tombox_smoke.cpp)
+    add_dependencies(wsx_xmem_tombox_smoke wsx_xmem_tombox_candidate)
+endif()
 add_library(wsx_pe_map SHARED "${WSX_XMEM_SOURCE_DIR}/pe_map.cpp")
 add_library(wsx_graphics_runtime STATIC graphics_probe.cpp)
 target_link_libraries(wsx_graphics_runtime PUBLIC d3d12_xs dxgi d3dcompiler)
@@ -68,6 +114,14 @@ install(FILES
         DESTINATION .)
 install(FILES "${WSX_XMEM_SOURCE_DIR}/LICENSE"
         DESTINATION licenses RENAME "Xbox2Windows-MIT.txt")
+if(WSX_TOMBOX_XMEM_AVAILABLE)
+    install(FILES "${WSX_TOMBOX_XMEM_CANDIDATE_DLL}"
+            DESTINATION candidates/tombox-xmem)
+    install(FILES
+            "${WSX_TOMBOX_XMEM_ROOT}/LICENSE-MIT"
+            "${WSX_TOMBOX_XMEM_ROOT}/README.md"
+            DESTINATION candidates/tombox-xmem)
+endif()
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_ui_resources.py"
@@ -110,6 +164,18 @@ if(BUILD_TESTING)
     add_test(NAME signal_run_warp COMMAND wsx_bootstrap --warp --module "$<TARGET_FILE:wsx_sample_game>")
     add_test(NAME xmem_shim COMMAND wsx_xmem_shim_test "$<TARGET_FILE_DIR:wsx_xmem_shim_test>/xmem.dll")
     set_tests_properties(xmem_shim PROPERTIES TIMEOUT 30)
+    if(WSX_TOMBOX_XMEM_AVAILABLE)
+        add_test(NAME tombox_xmem_candidate
+            COMMAND wsx_xmem_tombox_smoke "${WSX_TOMBOX_XMEM_CANDIDATE_DLL}")
+        add_test(NAME tombox_xmem_source_tests
+            COMMAND "${CMAKE_COMMAND}" -E env
+                "CARGO_TARGET_DIR=${WSX_TOMBOX_XMEM_TARGET_DIR}"
+                "${WSX_CARGO_EXECUTABLE}" test --offline
+                --manifest-path "${WSX_TOMBOX_XMEM_ROOT}/Cargo.toml"
+                --target x86_64-pc-windows-msvc --release -- --test-threads=1)
+        set_tests_properties(tombox_xmem_candidate tombox_xmem_source_tests
+            PROPERTIES TIMEOUT 120)
+    endif()
     add_test(NAME pe_map_fixture COMMAND wsx_pe_map_test
              "$<TARGET_FILE_DIR:wsx_pe_map_test>/wsx_pe_map.dll" "$<TARGET_FILE:wsx_pe_map_fixture_exe>")
     set_tests_properties(pe_map_fixture PROPERTIES TIMEOUT 30)

@@ -139,7 +139,7 @@
       </article>
       <article class="metric">
         <span class="label">Testes nativos de desktop</span>
-        <strong class="good">21 / 21</strong>
+        <strong class="good">23 / 23</strong>
         <small>RTX 5070 Ti Laptop e WARP</small>
       </article>
       <article class="metric">
@@ -168,14 +168,16 @@
         <article class="module">
           <div class="module-head"><h3>Apresentação D3D12 e Signal Run</h3><span class="status good">Verificado</span></div>
           <p>O exemplo próprio abre uma janela, apresenta frames e lê entrada. Não executa código do GTA VI.</p>
-          <div class="count"><span>CTest desktop</span><strong>21 / 21</strong></div>
-          <progress aria-label="21 de 21 testes CTest passaram" value="21" max="21"></progress>
+          <div class="count"><span>CTest desktop</span><strong>23 / 23</strong></div>
+          <progress aria-label="23 de 23 testes CTest passaram" value="23" max="23"></progress>
         </article>
         <article class="module">
           <div class="module-head"><h3>Shim XMem</h3><span class="status good">Correspondência estática</span></div>
-          <p>As quatro exportações do shim cobrem os seis registos XMem encontrados nas DLLs disponíveis. O jogo ainda não foi carregado.</p>
+          <p>O shim padrão cobre os seis registos encontrados. O candidato TomBox, separado do padrão, passou testes de 18 exportações e operações de memória; nenhum dos dois carregou o jogo.</p>
           <div class="count"><span>Registos observados com export correspondente</span><strong>6 / 6</strong></div>
           <progress aria-label="6 de 6 registos XMem encontrados têm export correspondente" value="6" max="6"></progress>
+          <div class="count"><span>Exports testadas no candidato TomBox</span><strong>18</strong></div>
+          <div class="count"><span>Testes de memória TomBox</span><strong>38 / 38</strong></div>
         </article>
         <article class="module">
           <div class="module-head"><h3>Mapeador PE</h3><span class="status warn">Só fixture sintética</span></div>
