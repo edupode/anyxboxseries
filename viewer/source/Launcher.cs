@@ -10,6 +10,7 @@
 
 using System;
 using System.Drawing;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -109,6 +110,8 @@ namespace Wsx
         private readonly TextBox folder = new TextBox();
         private readonly Button choose = new Button { Text = "Choose folder", AutoSize = true };
         private readonly Button analyze = new Button { Text = "Analyze", AutoSize = true };
+        private readonly Button exploreRpf = new Button { Text = "Explore RPF archives", AutoSize = true };
+        private readonly Button flyMap = new Button { Text = "Fly through 3D map", AutoSize = true };
         private readonly Label status = new Label { AutoSize = true };
         private readonly RichTextBox diagnostic = new RichTextBox
         {
@@ -147,10 +150,11 @@ namespace Wsx
 
             var root = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5,
+                Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6,
                 Padding = new Padding(16), BackColor = Color.FromArgb(245, 247, 250)
             };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -169,6 +173,18 @@ namespace Wsx
             pathRow.Controls.Add(analyze, 2, 0);
             status.Text = "Select the build folder.";
             status.Margin = new Padding(3, 6, 3, 12);
+
+            var toolsRow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                WrapContents = true,
+                Margin = new Padding(0, 0, 0, 10)
+            };
+            exploreRpf.AccessibleName = "Open the RPF archive explorer";
+            flyMap.AccessibleName = "Open the local 3D flyover scene";
+            toolsRow.Controls.Add(exploreRpf);
+            toolsRow.Controls.Add(flyMap);
 
             var tabs = new TabControl { Dock = DockStyle.Fill };
             var auditTab = new TabPage("Diagnostics") { Padding = new Padding(10), BackColor = Color.White };
@@ -190,14 +206,15 @@ namespace Wsx
             root.Controls.Add(new Label { AutoSize = true, Text = "Build folder" }, 0, 0);
             root.Controls.Add(pathRow, 0, 1);
             root.Controls.Add(status, 0, 2);
-            root.Controls.Add(tabs, 0, 3);
+            root.Controls.Add(toolsRow, 0, 3);
+            root.Controls.Add(tabs, 0, 4);
             root.Controls.Add(new Label
             {
                 AutoSize = true,
                 Margin = new Padding(3, 10, 3, 0),
                 Text = "AnyXboxSeries by edupode   |   Copyright (c) 2026 edupode\r\n"
                     + "https://github.com/edupode/anyxboxseries"
-            }, 0, 4);
+            }, 0, 5);
             Controls.Add(root);
 
             AcceptButton = analyze;
@@ -216,12 +233,180 @@ namespace Wsx
                 }
             };
             analyze.Click += async delegate { await AnalyzeAsync(); };
+            exploreRpf.Click += delegate { OpenRpfExplorer(); };
+            flyMap.Click += delegate { OpenFlyover(); };
             imageFiles.SelectedIndexChanged += delegate { ShowPreview(); };
             Shown += async delegate
             {
                 if (Directory.Exists(folder.Text))
                     await AnalyzeAsync();
             };
+        }
+
+        private static string FindRepositoryFile(string relativePath)
+        {
+            DirectoryInfo directory = new DirectoryInfo(Application.StartupPath);
+            for (int depth = 0; directory != null && depth < 8; depth++, directory = directory.Parent)
+            {
+                string candidate = Path.Combine(directory.FullName, relativePath);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return null;
+        }
+
+        private static string FindExecutableInPath(string executable)
+        {
+            foreach (string entry in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+            {
+                string directory = entry.Trim().Trim('"');
+                if (directory.Length == 0)
+                    continue;
+
+                string candidate = Path.Combine(directory, executable);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return null;
+        }
+
+        private static string FindBlender()
+        {
+            string fromPath = FindExecutableInPath("blender.exe");
+            if (fromPath != null)
+                return fromPath;
+
+            string[] roots =
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+            };
+            foreach (string root in roots.Where(Directory.Exists))
+            {
+                foreach (string product in Directory.GetDirectories(root, "Blender*"))
+                {
+                    string direct = Path.Combine(product, "blender.exe");
+                    if (File.Exists(direct))
+                        return direct;
+
+                    foreach (string version in Directory.GetDirectories(product))
+                    {
+                        string nested = Path.Combine(version, "blender.exe");
+                        if (File.Exists(nested))
+                            return nested;
+                    }
+                }
+
+                string foundation = Path.Combine(root, "Blender Foundation");
+                if (Directory.Exists(foundation))
+                {
+                    foreach (string version in Directory.GetDirectories(foundation, "Blender*"))
+                    {
+                        string candidate = Path.Combine(version, "blender.exe");
+                        if (File.Exists(candidate))
+                            return candidate;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static string QuoteArgument(string value)
+        {
+            string root = Path.GetPathRoot(value) ?? "";
+            string trimmed = value.Length > root.Length ? value.TrimEnd('\\', '/') : value;
+            return "\"" + trimmed.Replace("\"", "\\\"") + "\"";
+        }
+
+        private void OpenRpfExplorer()
+        {
+            string script = FindRepositoryFile(Path.Combine("tools", "rpf_explorer.py"));
+            if (script == null)
+            {
+                MessageBox.Show(this, "The RPF explorer could not be found beside this launcher.",
+                    "RPF explorer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string python = FindExecutableInPath("pythonw.exe") ?? FindExecutableInPath("python.exe");
+            if (python == null)
+            {
+                MessageBox.Show(this, "Python 3.10 or newer is required to open the RPF explorer.",
+                    "RPF explorer", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string package = Directory.Exists(folder.Text) ? folder.Text.Trim() : "";
+            string arguments = QuoteArgument(script) + (package.Length == 0 ? "" : " " + QuoteArgument(package));
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = python,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception error)
+            {
+                if (!(error is IOException || error is InvalidOperationException || error is System.ComponentModel.Win32Exception))
+                    throw;
+
+                MessageBox.Show(this, "Could not start the RPF explorer. " + error.Message,
+                    "RPF explorer", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OpenFlyover()
+        {
+            string scene = FindRepositoryFile(Path.Combine("build", "local-map", "voo-urbano.blend"));
+            if (scene == null)
+                scene = FindRepositoryFile(Path.Combine("local-map", "voo-urbano.blend"));
+            if (scene == null)
+            {
+                using (var dialog = new OpenFileDialog
+                {
+                    Title = "Select a Blender flyover scene",
+                    Filter = "Blender scene (*.blend)|*.blend",
+                    CheckFileExists = true
+                })
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK)
+                        return;
+                    scene = dialog.FileName;
+                }
+            }
+
+            string blender = FindBlender();
+            if (blender == null)
+            {
+                MessageBox.Show(this, "Install Blender or add blender.exe to PATH to open the 3D scene.",
+                    "3D flyover", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = blender,
+                    Arguments = QuoteArgument(scene),
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception error)
+            {
+                if (!(error is IOException || error is InvalidOperationException || error is System.ComponentModel.Win32Exception))
+                    throw;
+
+                MessageBox.Show(this, "Could not open the Blender scene. " + error.Message,
+                    "3D flyover", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private async Task AnalyzeAsync()

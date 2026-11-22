@@ -56,8 +56,28 @@ target_link_libraries(wsx_sample_game PRIVATE dxgi user32 xinput wsx_gameinput_i
 add_executable(wsx_bootstrap bootstrap.cpp)
 target_link_libraries(wsx_bootstrap PRIVATE wsx_graphics_runtime)
 add_dependencies(wsx_bootstrap wsx_boot_graphics wsx_sample_game)
+
+if(WIN32)
+    set(WSX_RESOURCE_LAUNCHER_EXE "${CMAKE_CURRENT_BINARY_DIR}/viewer/WSX-Resource-Launcher.exe")
+    add_custom_command(
+        OUTPUT "${WSX_RESOURCE_LAUNCHER_EXE}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/viewer"
+        COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/source/build.ps1"
+                -OutputPath "${WSX_RESOURCE_LAUNCHER_EXE}"
+        DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/source/build.ps1"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/source/Launcher.cs"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/source/PackageReader.cs"
+        VERBATIM)
+    add_custom_target(wsx_resource_launcher ALL DEPENDS "${WSX_RESOURCE_LAUNCHER_EXE}")
+endif()
+
 install(TARGETS d3d12_xs xmem wsx_pe_map wsx_graphics_probe wsx_shader_probe wsx_startup_trace wsx_bootstrap wsx_boot_graphics wsx_sample_game
         RUNTIME DESTINATION bin)
+if(WIN32)
+    install(FILES "${WSX_RESOURCE_LAUNCHER_EXE}" DESTINATION viewer)
+endif()
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../Start-SignalRun.cmd" DESTINATION .)
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../README.md"
@@ -72,10 +92,16 @@ install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_xbox_imports.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/inspect_ui_resources.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rbf0_tree.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rpf_explorer.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_shader.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/rdna2_scalar.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../tools/shader_container.py"
         DESTINATION tools)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/rpf/Open-RPF.cmd"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/rpf/window.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../viewer/rpf/README.md"
+        DESTINATION viewer/rpf)
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/BUILD.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/../docs/COMPATIBILITY.md"

@@ -32,6 +32,8 @@ python .\tools\rbf0_tree.py 'C:\Games\SampleBuild\data.rpf' --offset 0x11D3C000 
 python -m unittest discover -s tools
 ~~~
 
+The resource launcher also opens the read-only RPF explorer and the local Blender flyover scene. The RPF explorer requires Python 3.10+ with Tk; the flyover requires Blender. When `build\local-map\voo-urbano.blend` is present beside the source tree, the launcher opens it directly. Otherwise it asks for a `.blend` file. The local scene is a partial urban excerpt built from matched model placements and diffuse textures; extracted game assets and the generated `.blend` are not included in repository or install packages.
+
 The viewer uses WinForms on .NET Framework. The import inspector requires Python 3.10 or newer and DUMPBIN. Signal Run loads the Windows GameInput runtime from System32 at startup; if it is unavailable, the sample keeps its XInput fallback.
 
 `--present` creates a short-lived window, presents one triangle through a DXGI swap chain, and checks the rendered pixels. `--warp --present` runs the same check on WARP. `wsx_startup_trace` launches the specified executable, reports loaded images, debug strings, exceptions, and its exit code, then detaches after the observation limit if it is still running. It does not modify the executable or its files. Run it only with a build you are authorized to launch.
