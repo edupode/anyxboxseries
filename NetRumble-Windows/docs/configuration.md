@@ -1,0 +1,464 @@
+# Configuration: GDK, PlayFab and sandbox setup
+
+The primary demonstration is an **exported, registered XBOX on PC build**. This page covers
+its machine/account prerequisites, fixed sample configuration, editor exploration
+and console export traps. For environment capabilities, use the
+[README matrix](../README.md#what-works-where), not the presence of a loaded addon.
+
+XBOX user sign-in is the preferred authentication path:
+`PlayFab.users.sign_in_with_xuser_async(xbox_user)` authenticates the signed-in XBOX user
+with PlayFab. Failed XBOX authentication is reported, not replaced with another login method.
+
+See also: [Architecture](architecture.md) · [Multiplayer](multiplayer.md) ·
+[Matchmaking foundations](matchmaking.md) · [Platform Services](platform-services.md)
+
+---
+
+## Requirements
+
+- **Godot 4.6 or later** (standard build; the GDK addons are GDExtensions; no custom engine
+  build needed). Tested with 4.6.2. `project.godot` declares the `4.6` feature tag, so 4.6 is
+  this project's floor; the bundled GDExtensions declare a `compatibility_minimum` of 4.5, which
+  is a different and lower claim.
+  Exporting to XBOX Series X|S additionally requires GDKX through an NDA XBOX developer
+  program, an authorized devkit and a Middleware console fork. Complete the
+  [XBOX Development Kit setup][devkit-setup] first (authorized access required).
+- **Windows**: the GDK/PlayFab addons load only on Windows. Sign-in, multiplayer and
+  achievements additionally need registered package identity, the PC in the **XDKS.1**
+  sandbox, authorized access to that title/sandbox and a corresponding XBOX test account
+  signed in to the XBOX app.
+- **Visual Studio 2022** with the vcpkg component, plus an installed **Microsoft GDK**, to build
+  the addons. `addons/` is not committed; see [Addon maintenance](addon-maintenance.md).
+- **Export support for the chosen Godot build** and GDK PC tooling (`wdapp`) on the deployment
+  machine. The console path uses the authorized GDKX environment described above.
+
+---
+
+## Before you start
+
+Three things are provisioned separately, and each one gates the next. A gap at step 1 usually
+surfaces later as a confusing failure at step 3, so it is worth walking them in order.
+
+| Step | What you need | Where it comes from | What it unlocks |
+| --- | --- | --- | --- |
+| 1 | Microsoft GDK and Visual Studio 2022 | Installed on your own machine | Building `addons/`, package registration, deployment |
+| 2 | A PlayFab title | A PlayFab account, a separate service with its own sign-in | Lobby, matchmaking and achievement plumbing |
+| 3 | An XBOX title and sandbox authorization | Partner Center, through ID@XBOX or an existing publishing agreement | XBOX sign-in, friends, invites, XDKS.1 access |
+
+Steps 1 and 2 you can complete yourself today. Step 3 you cannot: it rests on a commercial
+relationship with XBOX, and cloning this repository does not grant one. See
+[what works without the full set](#what-works-without-the-full-set) before planning around it.
+
+### 1. Install the Microsoft GDK
+
+The GDK is a standalone SDK download. It does not ship with Godot, and it is not what `addons/`
+contains: `addons/` holds GDExtension wrappers that are compiled *against* the GDK, which is why
+building them needs it present locally.
+
+1. Install **Visual Studio 2022** with the native desktop development workload and the
+   **vcpkg** component.
+2. Install the public GDK from
+   [github.com/microsoft/GDK/releases](https://github.com/microsoft/GDK/releases). Authorized
+   XBOX development partners can instead use the secure
+   [XBOX download site](https://aka.ms/gdkdl), which also supplies GDKX and other NDA resources.
+   See [Access GDK development resources][gdk-resources] for the access distinction. Install the
+   selected edition after Visual Studio so its build integration registers.
+3. Open a *new* terminal and confirm the result:
+
+   ```powershell
+   $env:GameDK
+   wdapp /?
+   ```
+
+   The first should print an install path and the second should resolve. If either fails, the
+   GDK is not installed or the terminal predates the install.
+
+Reference material: [Microsoft GDK on Learn](https://learn.microsoft.com/en-us/gaming/gdk/).
+
+### 2. Get a PlayFab account and title
+
+PlayFab is a separate hosted backend with its own portal, account and title identifiers. An XBOX
+or Partner Center account does not create one for you, and a PlayFab title id is a different
+thing from an XBOX title id.
+
+Work through the
+[Game Manager quickstart](https://learn.microsoft.com/en-us/xbox/playfab/live-service-management/gamemanager/quickstart)
+to create a studio and a title. Background reading:
+[PlayFab documentation](https://learn.microsoft.com/en-us/gaming/playfab/).
+
+You do **not** need your own title for the primary XBOX path; the committed sample title serves
+it. You need your own PlayFab title for any game of your own.
+
+Matchmaking uses queue `godotnr_q` and reads the exported `GameModeConfig.player_count` as the
+room/network capacity. The supported capacity remains four and each ticket has one 600-second
+native deadline. Quick Match is available only while the configured Deathmatch capacity is four.
+A ready group of one to three submits a ticket. A full group of four never submits one; it uses
+Private Start in the same lobby and network.
+
+### Supported MatchmakingQueue
+
+The provisioned queue is:
+
+```json
+{
+  "Name": "godotnr_q",
+  "MinMatchSize": 2,
+  "MaxMatchSize": 4,
+  "ServerAllocationEnabled": false,
+  "Rules": []
+}
+```
+
+See [Configuring matchmaking queues](https://learn.microsoft.com/en-us/xbox/playfab/multiplayer/matchmaking/config-queues)
+and [Matchmaking scenario and configuration examples](https://learn.microsoft.com/en-us/xbox/playfab/multiplayer/matchmaking/config-examples).
+
+This configuration permits two-, three- or four-player results as soon as compatible tickets
+exist; it does not prefer four and later expand downward. A ticket still needs at least one other
+ticket, even when its own premade already meets `MinMatchSize`. A ticket already at
+`MaxMatchSize` is rejected. The normal full-group path does not submit that ticket. If a
+maximum-sized ticket still reaches the service, its rejection remains a matchmaking result and
+never selects Private Start after the request.
+
+Preferring a full match first would require a `MatchTotalRule` with `MinOverrides` and a
+per-player count attribute. That rule, attribute, teams and server allocation are **not**
+part of this sample's supported queue.
+
+Quick Match validates the addon surface it requires before entry. Optional diagnostic fields are
+read only when present, and ordinary lobby-code search is not required for Quick Match. In particular,
+`PlayFabLobbyJoinConfig` must expose `max_member_count`, `access_policy`,
+`owner_migration_policy`, `restrict_invites_to_lobby_owner` and `member_properties`;
+`PlayFabLobbyUpdateConfig` must expose `access_policy`, `lobby_properties` and
+`search_properties`;
+`PlayFabMatchmakingMember` must expose both `user` and `attributes`; and the Lobby, Party
+network/peer and service methods used by staging, handoff, admission, updates, locks and cleanup
+must be present. `max_players` belongs to `PlayFabLobbyConfig` and is not an alias for the
+arranged join field.
+
+Build from Sample addon revision
+`2accce554e0988e5076ac76d22f024307f6744c6` pinned by this repository and record the rebuilt
+addon package with validation results. A gitlink by itself does not identify the loaded binaries.
+
+### 3. Get XBOX title and sandbox access
+
+The XBOX half (sign-in, friends, invites and achievements against the live service) needs a
+title provisioned in Partner Center and your machine authorized for its sandbox. This sample
+runs in **XDKS.1**, a shared sample sandbox whose access you must already hold. With no XBOX
+publishing relationship yet, start at [ID@XBOX](https://www.xbox.com/en-US/developers/id). For
+the switch itself, see [Set the sandbox to XDKS.1](#set-the-sandbox-to-xdks1).
+
+### Running the PowerShell scripts
+
+The `tools/` scripts are unsigned `.ps1` files. A default Windows configuration refuses to run
+them, and copies extracted from a downloaded zip carry a mark-of-the-web block on top of that.
+Either start a session that permits them:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\deploy-pc.ps1 -Launch
+```
+
+or clear both conditions once for this working copy:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+Get-ChildItem .\tools\*.ps1 | Unblock-File
+```
+
+`-Scope Process` lasts only for that terminal, which is the smaller change of the two. A `git`
+clone does not carry the zip download's mark-of-the-web, so `Unblock-File` is unnecessary.
+
+### What works without the full set
+
+| You have | You can run |
+| --- | --- |
+| Godot only, addons not built | Source/scene inspection; missing extensions may prevent import, and gameplay is unavailable |
+| Steps 1 and 2 | Build/import checks and editor exploration; no gameplay without account/save readiness |
+| Steps 1, 2 and 3 | Registered demonstration after account acquisition and Game Saves loading succeed; service/policy requirements still apply |
+
+Practice also requires ready account-owned saves. A valid identified account with a usable
+platform-managed offline folder may play Practice; an unconfigured launch cannot. Cold offline
+launch is not guaranteed to acquire identity/store. Failures offer **Retry / Back**.
+
+Achievement definitions must match the service side. The ten ids this sample reports, and the
+conditions that unlock them, are listed in
+[Platform services](platform-services.md#achievements).
+
+---
+
+## Running
+
+First verify the [sandbox/account setup](#set-the-sandbox-to-xdks1). The repository does not
+grant service access, and registration does not create a sandbox test account.
+From a clone with submodules initialized, build the addons and launch a registered package:
+
+```powershell
+.\tools\sync_addons.ps1
+.\tools\deploy-pc.ps1 -Launch
+```
+
+`sync_addons.ps1` also initializes a missing submodule checkout. The deploy script exports,
+verifies registration and launches the registered AUMID. Check the acquire-user screen's stage
+and outcome, then follow the [Walkthroughs](walkthroughs.md). Keep the committed title/package
+identifiers unchanged.
+
+### Editor exploration
+
+After addon setup, open the folder in Godot and press F5, or run:
+
+```powershell
+godot.exe --path .
+```
+
+GDK initialization may succeed here, but F5/direct project launch is not a registered process
+and does not demonstrate XBOX sign-in or invites. It is useful for source/front-end inspection
+and diagnostics, not unsigned Practice. All gameplay requires an identified account and
+successfully initialized/loaded Game Saves; authentication alone is insufficient.
+
+For debugging multiplayer locally, debug desktop/editor builds expose Custom ID sign-in via
+`--pf-user=<name> --pf-title=<dev-title-id>` against a separate development PlayFab title
+permitting account creation. This is authentication-only and does not bypass the signed-in
+XBOX user and Game Saves requirements for gameplay.
+
+### Game Saves prerequisites
+
+Registered PC and console both use `GameSaveService` through `GDK.game_save.get_folder_async`
+(`XGameSaveFilesGetFolderWithUiAsync`) with the signed-in XboxUser, not the PlayFab user.
+The addon resolves the SCID from initialized Xbox services. The title/sandbox/SCID must match
+the authorized Partner Center configuration, with **Connected Storage** enabled under
+**Gameplay settings > Title Storage**. See Microsoft's
+[Game Saves debugging guidance](https://learn.microsoft.com/gaming/gdk/docs/features/common/game-save/game-saves-debugging).
+This backend does not require PlayFab Game Saves onboarding. PlayFab login, Party and Lobby
+configuration are still required for their existing features.
+
+Verify initial synchronization and returned `{path: String}` folder access rather than treating
+registration or authentication as save success. Resume requires fresh folder acquisition and
+all three loads; a cached folder from before suspend is not sufficient. Missing SDK/SCID,
+canceled sync, inaccessible paths and invalid saves remain blocking Retry/Back errors.
+
+`profile.json`, `history.json` and `stats.json` belong in its `NetRumble` subdirectory,
+not directly in the SDK root. PC preparation preserves valid current-format saves from the
+legacy root-level layout without deleting source files.
+No shared `settings.cfg`/history/stats cache is read or imported, and historical
+files are not moved or deleted. There is no migration setup step or alternate save backend.
+See [Game Saves behavior](platform-services.md#game-saves) and
+[PC/console acceptance](manual-test-plan.md#account-owned-saves-pc-and-console).
+
+---
+
+## Running with GDK identity
+
+`MicrosoftGame.config` is committed at the project root, the location the GDK addon and its
+samples expect, so the GDK initializes when you press F5 or run `godot.exe --path .`.
+
+Sign-in additionally needs a **registered** build, which means exporting, and the PC in the
+**XDKS.1** sandbox; see [Set the sandbox to XDKS.1](#set-the-sandbox-to-xdks1). Both presets are
+committed in `export_presets.cfg` (`XBOX on PC` and `Xbox Series X|S`), and `tools/` wraps the
+export and deployment steps for each:
+
+```powershell
+# PC: export, then `wdapp register` the loose package so it has an identity.
+.\tools\deploy-pc.ps1 -Launch
+
+# Console: export, deploy to the selected devkit, then optionally launch.
+.\tools\deploy-console.ps1 -ConsoleAddress 192.168.1.42
+```
+
+Both take `-Configuration debug|release` (default `release`), `-Clean`, `-SkipExport`, and
+`-Launch`. `.\tools\export.ps1 -Target both` omits a separate deployment step, but the PC
+preset still registers during export because `dev/register_loose` is enabled. See
+[tools/README.md](../tools/README.md) for the full set. The console preset needs a Middleware
+console fork; point `$env:GODOT_CONSOLE` or `-ConsoleGodotExe` at it.
+
+The underlying export commands, if you prefer to drive export by hand:
+
+```powershell
+# Console: the preset's export path pins the executable name.
+godot.exe --path . --export-release "Xbox Series X|S" scarlett_build\NetRumbleConsole.exe
+
+# PC: the exe name comes from MicrosoftGame.config, not from this path.
+godot.exe --path . --export-release "XBOX on PC" build\NetRumblePC.exe
+```
+
+The PC preset sets `dev/register_loose`, so it skips MSIXVC packaging and instead runs
+`wdapp register` on `build\_gdk_staging`; that staging folder, not the `export_path`, is the
+deliverable. Export also stages the config and the `storelogos/` tiles next to the `.exe`.
+`deploy-pc.ps1` checks `wdapp list`, registers explicitly if needed, and uses `wdapp launch`
+with the resolved AUMID for `-Launch`. Running a loose executable directly is not this launch path.
+
+---
+
+## Export traps
+
+### Never add `--headless` to a console export
+
+Godot bakes the precompiled D3D12 shader blobs into the `.pck` at export time, and that step only
+runs when a `RenderingDevice` exists. Under `--headless` the step is skipped silently; the export
+reports success, but the `.pck` comes out approximately 6 MB smaller, and the title is terminated
+at startup by Game Core with exit code `0x87E50006` (process exit `0x80000000`) with no output,
+no crash dump and no error report.
+
+Verify the shader cache made it in:
+
+```powershell
+python tools\pckdiff.py scarlett_build\NetRumbleConsole.pck
+```
+
+### Preserve `_cl_` in console layouts
+
+Keep the exporter's `_cl_` file beside `NetRumbleConsole.exe`, even when it is empty.
+The W4 console runtime reads platform arguments from this file during early startup
+and does not check for a failed open before using the file handle. Omitting it from
+a curated layout or package can terminate the title before the W4 splash screen.
+An empty `_cl_` is valid and must not be discarded as a temporary build file.
+
+### Close the console-fork editor before touching `export_presets.cfg`
+
+A Middleware console fork only registers the `Xbox Series X|S` platform. Saving
+`export_presets.cfg` from that editor silently deletes the `XBOX on PC` preset.
+
+Check `git diff export_presets.cfg` if a PC export suddenly reports an undefined preset.
+
+### Discard the `config/features` downgrade after a console export
+
+A Middleware console fork is built on Godot 4.5.x, so any export it runs rewrites
+`project.godot` with `config/features=PackedStringArray("4.5", ...)`, dropping this
+project's 4.6 floor. The same pass also reorders the `[input]` actions and drops
+`playfab/runtime/initialize_on_startup=false` (that is the addon's registered default,
+so the omission is harmless).
+
+Inspect `git diff -- project.godot` after a console export. Remove only the unintended
+exporter edits, preserving existing worktree changes; do not reset the entire file.
+
+---
+
+## `MicrosoftGame.config` explained
+
+Two fields are easy to mis-configure, and both fail in ways that do not name the field:
+
+### `AdvancedUserModel=false` (simplified user model)
+
+This is the simplified user model, which the platform recommends for most titles. The advanced
+model is for titles that let the signed-in user change mid-session without a restart; this title
+closes instead (XR-115), so it gains nothing from the advanced model.
+
+**The simplified model requires valid `TitleId` and `MSAAppId` elements.** Omit either and the
+process is killed with `0x89240102` at GDExtension load with no other diagnostic.
+
+One code consequence: the simplified model supplies the launching user and rejects interactive
+adds with `E_INVALIDARG`. Sign-in must come from `XBOX.users.add_default_user_async()`.
+`IdentityService`'s interactive fallback is unavailable under this model.
+
+### `Executable` entries
+
+The two `Executable` entries must match the exported `.exe` names: `NetRumblePC.exe` (`PC`) and
+`NetRumbleConsole.exe` (`Scarlett`). Having two entries means no hand-editing between a PC and a
+console export.
+
+**The PC entry must stay first.** The GDK "XBOX on PC" export platform derives the staged
+executable name by regex-searching the raw file text for the first `Executable` element's `Name`
+attribute, and that search is not XML-aware; it reads comments too. Consequences:
+
+- The PC entry must be first in `ExecutableList`.
+- Never write an `Executable` start-tag with a `Name` attribute inside a comment in this file:
+  the regex will pick it up as the executable name.
+
+---
+
+## PlayFab and GDK initialization settings
+
+Two `project.godot` settings look similar and mean opposite things:
+
+```ini
+[playfab]
+runtime/initialize_on_startup = false   ; must stay false
+
+[gdk]
+runtime/initialize_on_startup = true    ; correct
+```
+
+**`[playfab] runtime/initialize_on_startup=false`**: must stay `false`.
+`IdentityService._ensure_playfab()` applies title configuration before calling
+`PlayFab.initialize()`, which reads the title id from `ProjectSettings` at init time.
+Startup initialization would run before that setup. The title owns the moment of initialization.
+
+**`[gdk] runtime/initialize_on_startup=true`**: correct. The GDK has no equivalent pre-init
+override, so self-initialization is fine.
+
+---
+
+## Lobby search properties
+
+The join code is written to `string_key1` and the game mode to `string_key2`; the Party
+descriptor lives in the lobby's (non-searchable) `party_descriptor` property. No title-side setup
+is needed for these properties. `string_key3` additionally carries the sample protocol version.
+PlayFab's lobby search index is **eventually consistent** and `FindLobbies` is rate-limited.
+`PartyService._find_lobby()` performs a **single lookup**; a miss or a failed search leaves
+the code editable for an explicit retry, and a result already at its `max_member_count` is
+refused as full without joining. The code-join operation times out after 45 seconds.
+See [connection flows](multiplayer.md#connection-flows). Hosted matches do not use a Matchmaking
+queue; Quick Match uses `godotnr_q`.
+
+---
+
+## Configuration checklist
+The registered sample uses the committed configuration below; **do not change these values**
+for the demonstration. XBOX authentication and achievement definitions must agree with the
+sample's provisioned services.
+
+| Setting | File | Value |
+|---|---|---|
+| PlayFab title id | `project.godot`, `[playfab]` → `runtime/title_id` | `186CDB` |
+| Package identity name | `MicrosoftGame.config`, `Identity/@Name` | `41336MicrosoftATG.GodotNetRumble` |
+| XBOX services title id | `MicrosoftGame.config`, `<TitleId>` | `7C84AA93` |
+| MSA app id | `MicrosoftGame.config`, `<MSAAppId>` | `84983aff-dc3c-4cbb-8e88-aa51c4b0f5d9` |
+| Store id | `MicrosoftGame.config`, `<StoreId>` | `9P7KW6GFS17X` |
+
+> The **XBOX services** `TitleId` and the **PlayFab** title id (`runtime/title_id`) are separate
+> identifiers for separate services. Do not conflate them.
+
+> `export_presets.cfg` carries its own copies of the package identity, MSA app id, XBOX
+> services title id and store id, under `application/`. They must match the values above —
+> the export packages what is written there, not what is in `MicrosoftGame.config`.
+
+### Set the sandbox to XDKS.1
+
+The title is provisioned in the **XDKS.1** development sandbox, and
+XBOX test accounts only authenticate against the sandbox they were created in, so the machine
+must be in the same sandbox or sign-in fails. Obtain authorized sample title/sandbox access and
+an appropriate test account first. Two registered players need distinct XBOX accounts on separate
+machines (or PC/console); a second process on one PC does not supply a second XBOX identity.
+
+**On PC**, use [`XblPCSandbox.exe`][pc-sandbox], the GDK's PC sandbox switcher. Open **Microsoft
+GDK Command Prompts** from the Start menu (pick the newest GDK version) and run:
+
+```cmd
+XblPCSandbox /get
+XblPCSandbox /set XDKS.1
+```
+
+Run `/set` only with the machine owner's authorization; it needs **administrator privileges**
+and is **machine-wide**. It restarts the XBOX Live
+Auth Manager and affects every signed-in user on the PC, not just this project. `/get` does not.
+Record the current sandbox before changing it and restore that recorded value when finished;
+`XblPCSandbox /retail` is appropriate only if the prior state was retail.
+After setup, sign in to the XBOX app with the sandbox test account before registered launch.
+
+**On a devkit**, configure the console for **XDKS.1** by following
+[Setting up sandboxes][sandboxes] and the authorized [`xbconfig`][xbconfig] and
+[`xbreboot`][xbreboot] references. Obtain XDKS.1 authorization and an appropriate test account
+before changing the devkit. The detailed console tool references require NDA XBOX developer
+access.
+
+The repository's scripts do not provision accounts/services or prove those services are reachable.
+Treat unavailable title access, accounts or hardware as blocked walkthroughs, not successful setup.
+
+[pc-sandbox]: https://learn.microsoft.com/en-us/gaming/gdk/docs/tools/tools-services/live-pc-sandbox-switcher
+[sandboxes]: https://learn.microsoft.com/en-us/gaming/gdk/docs/services/fundamentals/sandboxes/live-setting-up-sandboxes
+[xbconfig]: https://learn.microsoft.com/en-us/gaming/gdk/docs/tools/tools-console/commandlinetools/xbconfig?view=gdk-2604
+[xbreboot]: https://learn.microsoft.com/en-us/gaming/gdk/docs/tools/tools-console/commandlinetools/xbreboot?view=gdk-2604
+[devkit-setup]: https://learn.microsoft.com/en-us/gaming/gdk/docs/gdk-dev/console-dev/dev-kits/setup/setting-up-your-devkit?view=gdk-2604
+[gdk-resources]: https://learn.microsoft.com/en-us/gaming/gdk/docs/gdk-dev/development-downloads/access-resources?view=gdk-2604
+
+### Store tiles
+
+Store tiles live in `storelogos/` (carrying a `.gdignore` so Godot doesn't import them as game
+textures).

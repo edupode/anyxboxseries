@@ -27,3 +27,11 @@ xbox_imports.txt
 *log.txt
 .env
 .env.*
+.godot/
+target/
+state/
+run.lock
+*.pck
+*.spv
+*.cso
+*.glb
