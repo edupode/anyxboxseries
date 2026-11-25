@@ -44,7 +44,6 @@ impl SigElement {
             18 => 68,
             19 => 67,
             20 => 69,
-            28 => 23, // barycentrics
             30 => 25, // cull primitive
             _ => 0,
         }
@@ -135,7 +134,7 @@ pub(crate) fn mesh_output_bytes(
 /// A resource bound by register, as `PSV0` lists it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Binding {
-    /// PSV resource type: 1 sampler, 2 CBV, 4 raw SRV, 7 raw UAV.
+    /// PSV resource type: 1 sampler, 2 CBV.
     pub kind: u32,
     pub space: u32,
     pub register: u32,
@@ -144,7 +143,7 @@ pub(crate) struct Binding {
 }
 
 pub(crate) struct Psv<'a> {
-    /// PSV shader kind: 0 pixel, 1 vertex, 2 geometry, 5 compute.
+    /// PSV shader kind: 0 pixel, 1 vertex, 5 compute.
     pub stage: u8,
     /// Vertex: writes `SV_Position`. Pixel: writes depth.
     pub flag: bool,
@@ -154,9 +153,6 @@ pub(crate) struct Psv<'a> {
     pub prims: &'a [SigElement],
     /// Mesh: its state and the group-shared bytes it declares.
     pub mesh: Option<(super::shader::Mesh, u32)>,
-    /// Geometry (triangles in, triangle strips out on stream 0): its
-    /// maximum vertex count. `flag`: writes `SV_Position`.
-    pub geometry: Option<u32>,
     pub bindings: &'a [Binding],
     /// Compute: thread-group size and required wave size.
     pub threads: [u32; 3],
@@ -182,15 +178,6 @@ pub(crate) fn psv(p: &Psv) -> Vec<u8> {
     u32s(&mut out, &[48]);
     let mut info = [0u8; 48];
     info[0] = u8::from(p.flag);
-    if p.stage == 0 {
-        // PSInfo.SampleFrequency: an input interpolated per sample, or the
-        // sample index.
-        info[1] = u8::from(
-            p.inputs
-                .iter()
-                .any(|e| matches!(e.interp, 6 | 7) || e.kind == 12),
-        );
-    }
     let (min, max) = p.wave_size.map_or((0, u32::MAX), |n| (n, n));
     info[16..20].copy_from_slice(&min.to_le_bytes());
     info[20..24].copy_from_slice(&max.to_le_bytes());
@@ -209,15 +196,6 @@ pub(crate) fn psv(p: &Psv) -> Vec<u8> {
         info[26] = vectors(p.prims) as u8;
         info[27] = mesh.topology;
         info[30] = p.prims.len() as u8;
-    }
-    if let Some(max_vertices) = p.geometry {
-        // Input primitive (3: triangles), output topology (5: triangle
-        // strips), stream mask, position written; the vertex maximum.
-        info[0..4].copy_from_slice(&3u32.to_le_bytes());
-        info[4..8].copy_from_slice(&5u32.to_le_bytes());
-        info[8..12].copy_from_slice(&1u32.to_le_bytes());
-        info[12] = u8::from(p.flag);
-        info[26..28].copy_from_slice(&(max_vertices as u16).to_le_bytes());
     }
     out.extend(info);
     u32s(&mut out, &[p.bindings.len() as u32]);
@@ -415,5 +393,43 @@ mod tests {
             .map(|b| format!("{b:02x}"))
             .collect();
         assert_eq!(hex, "900150983cd24fb0d6963f7d28e17f72");
+    }
+
+    fn element(row: u32, col: u8, cols: u8) -> SigElement {
+        SigElement {
+            name: "TEXCOORD".into(),
+            index: row,
+            kind: 0,
+            comp: 9,
+            interp: 2,
+            row: Some(row),
+            col,
+            cols,
+            usage: 0,
+            half: false,
+        }
+    }
+
+    #[test]
+    fn mesh_output_size_counts_components_and_aligned_maxima() {
+        // Components, not rows: 4 + 3 + 1 (two elements share row 1) and 2.
+        let vertex = [element(0, 0, 4), element(1, 0, 3), element(1, 3, 1)];
+        let primitive = [element(0, 0, 2)];
+        assert_eq!(
+            mesh_output_bytes(&vertex, &primitive, 64, 128),
+            4 * (8 * 64 + 2 * 128)
+        );
+        // Maxima round up to multiples of 32.
+        assert_eq!(
+            mesh_output_bytes(&vertex, &primitive, 33, 1),
+            mesh_output_bytes(&vertex, &primitive, 64, 32)
+        );
+        assert_eq!(mesh_output_bytes(&[], &[], 256, 256), 0);
+        // 32 components at 256 vertices are the limit itself; a primitive
+        // output on top passes it.
+        let rows: Vec<SigElement> = (0..8).map(|r| element(r, 0, 4)).collect();
+        assert_eq!(mesh_output_bytes(&rows, &[], 256, 256), MESH_OUTPUT_LIMIT);
+        let over = mesh_output_bytes(&rows, &primitive, 256, 1);
+        assert_eq!(over, MESH_OUTPUT_LIMIT + 4 * 2 * 32);
     }
 }

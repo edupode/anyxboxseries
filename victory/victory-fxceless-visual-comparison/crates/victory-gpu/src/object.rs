@@ -223,14 +223,13 @@ pub(crate) extern "system" fn set_name(this: This, name: *const u16) -> HRESULT 
     S_OK
 }
 
-/// The device-child method: the device that made the object, as any of
-/// the interfaces the device itself answers to.
+/// The device-child method: the device that made the object.
 pub(crate) extern "system" fn parent_device(_: This, iid: *const Iid, out: *mut This) -> HRESULT {
     let device = crate::device::device();
     answer(
         DEVICE,
         iid,
-        crate::device::is_device(iid).then_some(device),
+        is(iid, &[crate::device::IID]).then_some(device),
         out,
     )
 }
