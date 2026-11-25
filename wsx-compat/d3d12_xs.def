@@ -1,4 +1,0 @@
-LIBRARY d3d12_xs
-EXPORTS
-    D3D12CreateRootSignatureDeserializer = WsxCreateRootSignatureDeserializer
-    D3D12SerializeVersionedRootSignature = WsxSerializeVersionedRootSignature
