@@ -11,9 +11,7 @@ use super::{Encoding, Instruction};
 pub enum Operand {
     /// Scalar registers by operand code: 0-105 `s0`-`s105`, 106/107
     /// `vcc_lo`/`vcc_hi`, 108-123 `ttmp0`-`ttmp15`, 124 `m0`, 125 `null`,
-    /// 126/127 `exec_lo`/`exec_hi`. The decoder gives no code above 127; the
-    /// IR names scalars parked in VGPR lanes by the codes from 128 up
-    /// (`crate::ir::PARKED`).
+    /// 126/127 `exec_lo`/`exec_hi`.
     Scalar {
         code: u8,
         dwords: u8,

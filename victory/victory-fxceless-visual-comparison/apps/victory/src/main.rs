@@ -152,17 +152,7 @@ fn main() -> Result<()> {
             pipelines,
             list,
             jobs,
-        } => {
-            // `VICTORY_VIEW_LIMIT=<null slot>`: translate as on a host whose view heap is capped
-            if let Some(n) = std::env::var("VICTORY_VIEW_LIMIT").ok().and_then(|v| v.parse().ok()) {
-                victory_shader::emit::set_view_heap_limit(n);
-            }
-            // `VICTORY_HOST_WAVE=32`: translate as for a GPU whose waves are at most 32 lanes
-            if let Some(n) = std::env::var("VICTORY_HOST_WAVE").ok().and_then(|v| v.parse().ok()) {
-                victory_shader::emit::set_host_max_wave(n);
-            }
-            translate::run(paths, validate, pipelines, list, jobs)
-        }
+        } => translate::run(paths, validate, pipelines, list, jobs),
         Command::Run {
             exe,
             unimplemented,
@@ -190,7 +180,6 @@ fn show_config() -> Result<()> {
     );
     println!("game_dir    : {}", status(&cfg.game_dir));
     println!("cache_dir   : {}", cfg.cache_dir.display());
-    println!("data_dir    : {}", cfg.data_dir.display());
     for t in &cfg.test_titles {
         println!("test_title  : {}", status(&Some(t.clone())));
     }
@@ -198,7 +187,7 @@ fn show_config() -> Result<()> {
         .game_dir
         .iter()
         .chain(&cfg.test_titles)
-        .chain([&cfg.cache_dir, &cfg.data_dir])
+        .chain([&cfg.cache_dir])
     {
         if let Err(e) = victory_core::ensure_outside_repo(p) {
             println!("POLICY VIOLATION: {e}");

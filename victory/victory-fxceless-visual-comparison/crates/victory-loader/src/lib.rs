@@ -4,7 +4,7 @@
 //! CPU, so the machine code needs no translation. What differs is the
 //! platform underneath, so the loader's job is to:
 //!
-//! 1. [`prepare()`] a lightly patched copy of the image (pure, portable): mark
+//! 1. [`prepare`] a lightly patched copy of the image (pure, portable): mark
 //!    it as a DLL, remove its entry point and import directory, and detach
 //!    its TLS callbacks, so the Windows loader maps it, relocates it,
 //!    allocates its static TLS and registers its unwind tables, but runs
@@ -22,7 +22,6 @@
 //!    on, pass every thread start and end on to the attached images.
 
 #[cfg(windows)]
-mod console_insn;
 mod crash;
 pub mod prepare;
 pub mod resolve;

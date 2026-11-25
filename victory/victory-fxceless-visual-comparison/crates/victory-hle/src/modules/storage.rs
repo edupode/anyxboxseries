@@ -26,7 +26,7 @@ pub const IID: Guid = Guid::new(
     [0x8b, 0x27, 0x95, 0xfc, 0x02, 0xd0, 0xf7, 0x5d],
 );
 
-/// As the title (2026) asks for it; it calls 0x20 (path) and 0x28
+/// As Grand Theft Auto VI (2026) asks for it; it calls 0x20 (path) and 0x28
 /// (space) with the same arguments.
 pub const IID_2026: Guid = Guid::new(
     0x41a4_e10c,
@@ -37,8 +37,6 @@ pub const IID_2026: Guid = Guid::new(
 
 pub static OBJECT: Object = Object::new("persistent local storage", &VTABLE);
 pub const INTERFACES: &[Interface] = &[(PROVIDER, IID, &OBJECT), (PROVIDER, IID_2026, &OBJECT)];
-
-const E_FAIL: HRESULT = 0x8000_4005_u32 as i32;
 
 type This = *const Object;
 
@@ -65,11 +63,8 @@ extern "system" fn path_size(_: This, out: *mut usize) -> HRESULT {
     }
 }
 
-/// A buffer too small for the path fails with `E_FAIL`, the documented
-/// Xbox result (a PC gets `ERROR_INSUFFICIENT_BUFFER`).
 extern "system" fn path(_: This, size: usize, buffer: *mut u8, used: *mut usize) -> HRESULT {
     match folder() {
-        Some(path) if size <= path.len() => E_FAIL,
         Some(path) => put_string(&path, size, buffer, used),
         None => NOT_SUPPORTED,
     }
@@ -201,7 +196,6 @@ mod tests {
         let (mut buffer, mut used) = ([0u8; 4], 0);
         let get = method::<Get>(&OBJECT, 0x20);
         assert_eq!(get(this, 4, buffer.as_mut_ptr(), &mut used), S_OK);
-        assert_eq!(get(this, 3, buffer.as_mut_ptr(), &mut used), E_FAIL);
         let drive = std::str::from_utf8(&buffer[..3]).unwrap();
         assert!(drive.ends_with(":\\"), "{drive}");
         // Title file calls on it reach the folder.

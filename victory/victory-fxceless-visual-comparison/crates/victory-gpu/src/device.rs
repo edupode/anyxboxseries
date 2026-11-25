@@ -29,7 +29,7 @@ pub static IID: Iid = guid(
 );
 
 /// The levels the device answers to, as on PC: `ID3D12Device1` to
-/// `ID3D12Device8`, and `ID3D12Device11`, which the title creates
+/// `ID3D12Device8`, and `ID3D12Device11`, which Grand Theft Auto VI creates
 /// its device as. Each level's table is the one before plus its methods.
 const LEVEL_IIDS: [Iid; 9] = [
     guid(
@@ -88,13 +88,12 @@ const LEVEL_IIDS: [Iid; 9] = [
     ),
 ];
 
-/// Whether `iid` names the device: its first interface or a newer level.
-pub(crate) fn is_device(iid: *const Iid) -> bool {
+fn is_device(iid: *const Iid) -> bool {
     object::is(iid, &[IID]) || object::is(iid, &LEVEL_IIDS)
 }
 
 /// The interface version these layouts were checked against (2.4). Both
-/// Minecraft (March 2022) and the title (April 2026) pass it.
+/// Minecraft (March 2022) and Grand Theft Auto VI (April 2026) pass it.
 pub const CHECKED_VERSION: u32 = 0x0002_0004;
 
 /// Feature level 12_2, what the console hardware supports.
@@ -160,7 +159,7 @@ pub extern "system" fn create(
 /// queues then have the newer layouts (two more methods each; see
 /// `list` and `queue`), although the interface version stays 2.4.
 /// shortcut: the creation interface is the only sign of the newer layouts
-/// we have (the title, April 2026, versus Minecraft, March 2022);
+/// we have (Grand Theft Auto VI, April 2026, versus Minecraft, March 2022);
 /// look for a better one if a title breaks the rule.
 static NEWER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -346,59 +345,6 @@ fn feature_levels(data: *mut c_void) -> HRESULT {
     }
 }
 
-/// Device methods 0x1c8 and 0x218 (`SLOT`). The title calls both
-/// (title+0x2477578 and title+0x24800d5) as `(this, description, interface
-/// id, out)`, asks for `ID3D12PipelineState`, and on success keeps the
-/// object `out` names and draws with it; on failure it goes without that
-/// pipeline, silently. What the descriptions hold is not known: the calls
-/// fail as they always did, with `out` null, and the first ones log the
-/// description's words and what its first word points at, so that the two
-/// methods can be written.
-/// shortcut: not implemented. Answering `S_OK` here without making the
-/// pipeline would hand the title whatever its stack held as an object.
-extern "system" fn unknown_pipeline<const SLOT: usize>(
-    _: This,
-    desc: *const u8,
-    _iid: *const Iid,
-    out: *mut This,
-) -> HRESULT {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static CALLS: [AtomicU32; 2] = [const { AtomicU32::new(0) }; 2];
-    let calls = CALLS[usize::from(SLOT == 0x218)].fetch_add(1, Ordering::Relaxed) + 1;
-    if !out.is_null() {
-        // SAFETY: the title's out pointer (a local of its own).
-        unsafe { *out = std::ptr::null() };
-    }
-    if calls <= 4 || calls.is_power_of_two() {
-        // Sixteen 64-bit words at `at`, read through the kernel: neither
-        // pointer is known to be mapped.
-        #[cfg(windows)]
-        let words = |at: usize| -> Option<Vec<u64>> {
-            let mut bytes = [0u8; 128];
-            (at != 0 && crate::host::read_into(at as *const u8, &mut bytes)).then(|| {
-                bytes
-                    .as_chunks::<8>().0.iter()
-                    .map(|c| c.iter().rev().fold(0u64, |v, &b| v << 8 | u64::from(b)))
-                    .collect()
-            })
-        };
-        #[cfg(not(windows))]
-        let words = |_: usize| None::<Vec<u64>>;
-        let description = words(desc as usize);
-        let first = description
-            .as_ref()
-            .and_then(|w| words(w[0] as usize));
-        tracing::warn!(
-            slot = format_args!("{:#x}", SLOT),
-            calls,
-            description = format_args!("{description:x?}"),
-            first_points_at = format_args!("{first:x?}"),
-            "a pipeline creation method that is not implemented: the title goes without this pipeline"
-        );
-    }
-    E_NOTIMPL
-}
-
 /// IUnknown 3, object methods 4, device methods 76 (0x18-0x290), then the
 /// methods `ID3D12Device1` to `ID3D12Device8` add, in order: 3, 1, 3, 6, 9,
 /// 1, 2, 9 (0x298-0x3a0, the console's own among them), then those of
@@ -435,10 +381,8 @@ static FUNCTIONS: Table<160> = {
     f[39] = query::create as *const (); // 0x138
     f[41] = signature::create as *const (); // 0x148
     f[48] = queue::create_x as *const (); // 0x180
-    f[57] = unknown_pipeline::<0x1c8> as *const (); // 0x1c8
     f[61] = descriptor::create_sampler_x as *const (); // 0x1e8
     f[62] = pipeline::create_compute_x as *const (); // 0x1f0
-    f[67] = unknown_pipeline::<0x218> as *const (); // 0x218
     f[69] = object::ignore as *const (); // 0x228 debug error filter
     f[70] = descriptor::create_placed_srv as *const (); // 0x230
     f[71] = descriptor::create_placed_uav as *const (); // 0x238
@@ -490,7 +434,7 @@ mod tests {
 
     #[test]
     fn newer_device_levels_are_the_same_device() {
-        // ID3D12Device11, as the title asks for it.
+        // ID3D12Device11, as Grand Theft Auto VI asks for it.
         let (hr, device) = create_as(&LEVEL_IIDS[8]);
         assert_eq!((hr, device), (S_OK, super::device()));
         let mut same = std::ptr::null();
@@ -499,54 +443,6 @@ mod tests {
         // A Device8 method we have not written fails without crashing.
         let missing = slot::<extern "system" fn() -> HRESULT>(device, 0x3a0);
         assert_eq!(missing(), E_NOTIMPL);
-    }
-
-    /// A device child, and the DXGI device, hand out the device as any
-    /// interface the device itself answers to.
-    #[test]
-    fn the_device_is_found_at_every_level_through_others() {
-        type Get = extern "system" fn(This, *const Iid, *mut This) -> HRESULT;
-        let fence_iid = &crate::fence::FENCE_IIDS[0];
-        let mut fence = std::ptr::null();
-        assert_eq!(
-            crate::fence::create(std::ptr::null(), 0, 0, fence_iid, &mut fence),
-            S_OK
-        );
-        let get_device = slot::<Get>(fence, 0x38);
-        let dxgi = dxgi::device();
-        let query = slot::<Get>(dxgi, 0);
-        for iid in std::iter::once(&IID).chain(&LEVEL_IIDS) {
-            let mut found = std::ptr::null();
-            assert_eq!(get_device(fence, iid, &mut found), S_OK, "{iid:02x?}");
-            assert_eq!(found, device());
-            let mut found = std::ptr::null();
-            assert_eq!(query(dxgi, iid, &mut found), S_OK, "{iid:02x?}");
-            assert_eq!(found, device());
-        }
-        // What the device is not, it is not through them either.
-        let mut found = device();
-        assert_eq!(get_device(fence, fence_iid, &mut found), E_NOINTERFACE);
-        assert!(found.is_null());
-        slot::<extern "system" fn(This) -> u32>(fence, 0x10)(fence);
-    }
-
-    /// The host's: a fence's `GetDevice` for `ID3D12Device5`.
-    #[cfg(windows)]
-    #[test]
-    fn the_hosts_children_hand_out_newer_device_levels() {
-        use windows::Win32::Graphics::Direct3D12::{
-            D3D12_FENCE_FLAG_NONE, ID3D12Device5, ID3D12Fence,
-        };
-        let Some(host) = crate::host::host() else {
-            return; // no host GPU here
-        };
-        // SAFETY: plain calls on the host device and its fence.
-        unsafe {
-            let fence: ID3D12Fence = host.device.CreateFence(0, D3D12_FENCE_FLAG_NONE).unwrap();
-            let mut device: Option<ID3D12Device5> = None;
-            assert!(fence.GetDevice(&mut device).is_ok());
-            assert!(device.is_some());
-        }
     }
 
     #[test]
